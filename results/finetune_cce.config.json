@@ -1,0 +1,29 @@
+{
+ "model_name":"\/home\/jovyan\/shared-longhorn\/models\/gemma-2-2b-it",
+ "loss_impl":"cce",
+ "cce_impl":"cce",
+ "lora_r":16,
+ "lora_alpha":32,
+ "lora_dropout":0.05,
+ "lora_target_modules":[
+  "q_proj",
+  "k_proj",
+  "v_proj",
+  "o_proj",
+  "gate_proj",
+  "up_proj",
+  "down_proj"
+ ],
+ "optimizer":"adamw",
+ "lr":0.0002,
+ "weight_decay":0.0,
+ "warmup_steps":20,
+ "num_steps":300,
+ "batch_size":4,
+ "grad_accum":2,
+ "max_grad_norm":1.0,
+ "gradient_checkpointing":false,
+ "seed":0,
+ "log_every":1,
+ "log_path":"results\/finetune_cce.csv"
+}
