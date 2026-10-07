@@ -13,6 +13,7 @@
 from __future__ import annotations
 
 import csv
+import gc
 import math
 import random
 import time
@@ -28,6 +29,7 @@ from torch.utils.data import DataLoader
 from transformers import AutoModelForCausalLM, AutoTokenizer, PreTrainedModel, PreTrainedTokenizerBase
 from transformers import get_linear_schedule_with_warmup
 
+from bench import is_oom
 from preprocessing import IGNORE_INDEX
 
 LossImpl = Literal["hf", "cce"]
@@ -246,16 +248,22 @@ def fits_in_memory(
     """Пробует один шаг forward + backward с данным размером батча. True, если не было OOM."""
     model.zero_grad(set_to_none=True)
     torch.cuda.empty_cache()
+    out = batch = None
     try:
         batch = {k: v.to(device) for k, v in make_batch(batch_size).items()}
         out = model(**batch)
         out.loss.backward()
         ok = True
-    except torch.cuda.OutOfMemoryError:
+    except Exception as err:
+        # На MIG OOM приходит как RuntimeError "NVML_SUCCESS == r INTERNAL ASSERT FAILED" (см. bench.is_oom).
+        if not is_oom(err):
+            raise
+        del err  # трейсбек держит ссылки на активации упавшего прогона
         ok = False
     finally:
         out = batch = None  # noqa: F841 — отпускаем ссылки до empty_cache
         model.zero_grad(set_to_none=True)
+        gc.collect()
         torch.cuda.empty_cache()
     return ok
 
