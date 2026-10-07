@@ -92,8 +92,5 @@ def forward(
     tl.atomic_xchg(Lock + pid_y, 0, sem="release")
 
 
-def backward(
-        ...
-):
+def backward():
     pass
-
