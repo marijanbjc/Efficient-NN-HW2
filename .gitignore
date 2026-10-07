@@ -4,6 +4,10 @@ __pycache__/
 *$py.class
 *.so
 
+# Модель
+gemma-2-2b-it.tar.gz
+gemma-2-2b-it/
+
 # Виртуальные окружения
 .venv/
 venv/
