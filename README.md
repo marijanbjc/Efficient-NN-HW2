@@ -103,7 +103,7 @@ pip install -r requirements.txt
 
 ```python
 from datasets import load_dataset
-load_dataset("tatsu-lab/alpaca", split="train[:500]").to_pandas()[["instruction", "input", "output"]].to_csv("data/data.csv", index=False)
+load_dataset("tatsu-lab/alpaca", split="train[:500]").to_pandas()[["instruction", "input", "output"]].to_csv("data/alpaca.csv", index=False)
 ```
 
 В ноутбуках путь к данным задан в `DATA_CSV` - он должен указывать на этот файл.
