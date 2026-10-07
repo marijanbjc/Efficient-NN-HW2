@@ -1,0 +1,896 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Cut Cross-Entropy на примерах</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Golos+Text:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&family=Unbounded:wght@500;600&display=swap">
+<style>
+/* Layout: одна колонка для чтения (~46rem) + липкое оглавление слева на широких экранах.
+   Цвет несёт смысл: тёплый = глобальная память GPU (HBM, дорого), бирюзовый = SRAM на чипе (быстро). */
+:root{
+  --bg:#f3f6f5; --surface:#ffffff; --ink:#15201c; --muted:#5a6a65; --line:#d3ddd9;
+  --sram:#0d7a70; --hbm:#b8481e; --soft:#e7efec;
+  --f-display:"Unbounded", "Golos Text", system-ui, sans-serif;
+  --f-body:"Golos Text", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --f-mono:"JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  --f-math:"Cambria Math", "STIX Two Math", "Times New Roman", serif;
+  color-scheme:light;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#0e1412; --surface:#161f1c; --ink:#e2ebe8; --muted:#94a49f; --line:#2b3733;
+    --sram:#3cc2b2; --hbm:#f08a5d; --soft:#1d2925; color-scheme:dark;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#0e1412; --surface:#161f1c; --ink:#e2ebe8; --muted:#94a49f; --line:#2b3733;
+  --sram:#3cc2b2; --hbm:#f08a5d; --soft:#1d2925; color-scheme:dark;
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+@media (prefers-reduced-motion: reduce){html{scroll-behavior:auto}}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.62 var(--f-body)}
+.wrap{max-width:74rem;margin:0 auto;padding-inline:20px;padding-block:32px 80px;display:grid;grid-template-columns:1fr;gap:40px}
+@media (min-width:1080px){.wrap{grid-template-columns:14rem minmax(0,1fr)}}
+nav.toc{display:none}
+@media (min-width:1080px){
+  nav.toc{display:block;position:sticky;top:calc(env(safe-area-inset-top,0px) + 24px);align-self:start;font-size:.86rem}
+  nav.toc ol{list-style:none;margin:0;padding:0;display:grid;gap:2px;counter-reset:t}
+  nav.toc a{display:block;padding:5px 10px;border-radius:6px;color:var(--muted);text-decoration:none}
+  nav.toc a:hover,nav.toc a:focus-visible{background:var(--soft);color:var(--ink)}
+  nav.toc .lbl{font:600 .7rem/1 var(--f-body);letter-spacing:.1em;text-transform:uppercase;color:var(--muted);padding:0 10px 10px}
+}
+main{min-width:0;max-width:48rem}
+h1,h2,h3{font-family:var(--f-display);font-weight:500;text-wrap:balance;line-height:1.2;margin:0}
+h1{font-size:clamp(1.7rem,4.2vw,2.5rem);letter-spacing:-.01em}
+h2{font-size:1.42rem;margin-block:0 14px}
+h3{font-size:1.02rem;font-weight:500;margin-block:26px 8px}
+p{margin:0 0 14px}
+section{padding-block:36px 8px;border-top:1px solid var(--line)}
+section:first-of-type{border-top:0}
+.eyebrow{font:600 .72rem/1 var(--f-body);letter-spacing:.12em;text-transform:uppercase;color:var(--sram);margin-bottom:10px}
+.lede{font-size:1.1rem;color:var(--muted);max-width:40rem}
+a{color:var(--sram)}
+code,.mono{font-family:var(--f-mono);font-size:.88em}
+.m{font-family:var(--f-math);font-style:italic;font-size:1.08em;white-space:nowrap}
+.m b{font-style:normal;font-weight:700}
+.formula{font-family:var(--f-math);font-size:1.18rem;background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:16px 18px;margin:14px 0 18px;overflow-x:auto;text-align:center;white-space:nowrap}
+.formula .note{display:block;font-family:var(--f-body);font-size:.8rem;color:var(--muted);margin-top:8px;white-space:normal}
+.hl-t{color:var(--sram);font-weight:700}
+.hl-h{color:var(--hbm);font-weight:700}
+.tag{display:inline-block;font:600 .7rem/1 var(--f-body);letter-spacing:.06em;text-transform:uppercase;padding:4px 7px;border-radius:4px;vertical-align:1px}
+.tag.sram{background:color-mix(in oklab,var(--sram) 16%,transparent);color:var(--sram)}
+.tag.hbm{background:color-mix(in oklab,var(--hbm) 16%,transparent);color:var(--hbm)}
+.callout{border-left:3px solid var(--sram);background:var(--surface);padding:12px 16px;border-radius:0 8px 8px 0;margin:16px 0}
+.callout.warm{border-left-color:var(--hbm)}
+.callout p:last-child{margin:0}
+ul.plain{margin:0 0 14px;padding-left:1.2em}
+ul.plain li{margin-bottom:6px}
+
+/* hero numbers */
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(12rem,1fr));gap:12px;margin:26px 0 8px}
+.stat{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:14px 16px}
+.stat .v{font:600 1.35rem/1.2 var(--f-mono);font-variant-numeric:tabular-nums}
+.stat .v s{color:var(--muted);font-weight:400;text-decoration-thickness:1px}
+.stat .k{font-size:.84rem;color:var(--muted);margin-top:4px}
+
+/* панели-«приборы» */
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:18px;margin:18px 0}
+.panel h4{margin:0 0 12px;font:600 .78rem/1 var(--f-body);letter-spacing:.1em;text-transform:uppercase;color:var(--muted)}
+.row{display:flex;flex-wrap:wrap;gap:16px;align-items:flex-start}
+.row>*{min-width:0}
+.scroll{overflow-x:auto;max-width:100%}
+button,.btn{font:500 .88rem/1 var(--f-body);color:var(--ink);background:var(--soft);border:1px solid var(--line);border-radius:7px;padding:9px 13px;cursor:pointer}
+button:hover{border-color:var(--muted)}
+button[aria-pressed="true"]{background:var(--ink);color:var(--bg);border-color:var(--ink)}
+button:focus-visible,input:focus-visible{outline:2px solid var(--sram);outline-offset:2px}
+button:disabled{opacity:.4;cursor:default}
+input[type=range]{width:100%;accent-color:var(--sram)}
+label.ctl{display:grid;gap:4px;font-size:.84rem;color:var(--muted);flex:1 1 13rem}
+label.ctl output{font:600 .95rem var(--f-mono);color:var(--ink)}
+
+/* матрицы */
+table.mx{border-collapse:separate;border-spacing:3px;font:500 .84rem/1 var(--f-mono);font-variant-numeric:tabular-nums}
+table.mx th{font:500 .74rem/1.2 var(--f-body);color:var(--muted);padding:3px 6px;text-align:right;white-space:nowrap}
+table.mx thead th{text-align:center}
+table.mx td{min-width:3.4rem;height:2rem;text-align:center;border-radius:4px;padding:0 6px;border:2px solid transparent}
+table.mx td.tgt{border-color:var(--ink)}
+table.mx td.ghost{color:var(--muted);opacity:.35}
+table.mx td.cur{box-shadow:inset 0 0 0 2px var(--sram)}
+table.mx tr.blk-end td{}
+table.mx tr.gap td,table.mx tr.gap th{height:6px;padding:0;min-width:0;background:none}
+.mx-cap{font-size:.8rem;color:var(--muted);margin-top:6px}
+.mx-title{font:600 .9rem/1.2 var(--f-math);font-style:italic;margin-bottom:6px}
+.eq{font:1.4rem var(--f-math);color:var(--muted);align-self:center;padding:0 2px}
+
+table.data{border-collapse:collapse;width:100%;font-size:.9rem}
+table.data th,table.data td{padding:8px 10px;border-bottom:1px solid var(--line);text-align:right;white-space:nowrap}
+table.data th:first-child,table.data td:first-child{text-align:left}
+table.data th{font-weight:600;font-size:.78rem;color:var(--muted);letter-spacing:.03em}
+table.data td{font-family:var(--f-mono);font-size:.85rem;font-variant-numeric:tabular-nums}
+table.data td:first-child{font-family:var(--f-body)}
+table.data tr.me td{font-weight:600}
+
+/* память: шкалы */
+.bars{display:grid;gap:10px}
+.bar{display:grid;grid-template-columns:9.5rem minmax(0,1fr) 6.5rem;gap:10px;align-items:center;font-size:.86rem}
+@media (max-width:560px){.bar{grid-template-columns:6.5rem minmax(0,1fr) 5rem;font-size:.8rem}}
+.bar .track{height:16px;background:var(--soft);border-radius:3px;overflow:hidden}
+.bar .fill{height:100%;background:var(--sram);border-radius:3px;min-width:2px}
+.bar .fill.warm{background:var(--hbm)}
+.bar .val{font:500 .82rem var(--f-mono);text-align:right;font-variant-numeric:tabular-nums}
+
+/* схема памяти GPU */
+.mem{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+@media (max-width:620px){.mem{grid-template-columns:1fr}}
+.membox{border:1.5px solid;border-radius:10px;padding:14px;min-width:0}
+.membox.h{border-color:var(--hbm);background:color-mix(in oklab,var(--hbm) 6%,var(--surface))}
+.membox.s{border-color:var(--sram);background:color-mix(in oklab,var(--sram) 6%,var(--surface))}
+.membox .t{font:600 .95rem var(--f-body);margin-bottom:4px}
+.membox .sub{font-size:.82rem;color:var(--muted);margin-bottom:10px}
+.vec{display:flex;gap:4px;flex-wrap:wrap}
+.vec span{font:500 .84rem var(--f-mono);background:var(--surface);border:1px solid var(--line);border-radius:4px;padding:6px 8px;font-variant-numeric:tabular-nums}
+.stepper{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:14px}
+.stepper .pos{font:500 .85rem var(--f-mono);color:var(--muted);margin-left:auto}
+.log{font:.86rem/1.55 var(--f-mono);background:var(--soft);border-radius:8px;padding:10px 12px;margin-top:12px;overflow-x:auto;white-space:pre}
+
+/* сетка фильтрации */
+.grids{display:flex;flex-wrap:wrap;gap:24px;justify-content:flex-start}
+.gcol{min-width:0}
+.gcol .gt{font:600 .86rem var(--f-body);margin-bottom:4px}
+.gcol .gs{font:.8rem var(--f-mono);color:var(--muted);margin-bottom:8px}
+.fgrid{display:grid;gap:3px}
+.fblk{display:grid;gap:1px;position:relative;border-radius:2px;outline:1px solid var(--line)}
+.fblk.skip::after{content:"";position:absolute;inset:0;background:repeating-linear-gradient(135deg,color-mix(in oklab,var(--muted) 30%,transparent) 0 2px,transparent 2px 6px)}
+.fc{width:9px;height:9px}
+.legend{display:flex;flex-wrap:wrap;gap:14px;font-size:.8rem;color:var(--muted);margin-top:12px}
+.legend i{display:inline-block;width:12px;height:12px;border-radius:2px;vertical-align:-2px;margin-right:5px}
+
+/* bf16 биты */
+.bits{font:500 .9rem var(--f-mono);letter-spacing:.04em;overflow-x:auto;white-space:nowrap}
+.bits .sg{color:var(--muted)} .bits .ex{color:var(--hbm)} .bits .mt{color:var(--sram)}
+.bits .lost{color:var(--muted);text-decoration:line-through;opacity:.6}
+
+.algo{font:.86rem/1.6 var(--f-mono);background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:14px 16px;overflow-x:auto;white-space:pre;margin:14px 0}
+.algo .c{color:var(--muted)} .algo .s{color:var(--sram)} .algo .h{color:var(--hbm)}
+footer{margin-top:40px;font-size:.84rem;color:var(--muted)}
+</style>
+</head>
+<body>
+<div class="wrap">
+<nav class="toc" aria-label="Оглавление">
+  <div class="lbl">Разбор</div>
+  <ol>
+    <li><a href="#problem">1. Где кончается память</a></li>
+    <li><a href="#idea">2. Главная идея</a></li>
+    <li><a href="#gpu">3. HBM и SRAM</a></li>
+    <li><a href="#fwd1">4. Правильный логит</a></li>
+    <li><a href="#fwd2">5. LSE по блокам</a></li>
+    <li><a href="#bwd">6. Обратный проход</a></li>
+    <li><a href="#grad">6а. Откуда берётся G</a></li>
+    <li><a href="#bf16">7. Почему мелочь не важна</a></li>
+    <li><a href="#filter">8. Фильтрация и сортировка</a></li>
+    <li><a href="#results">9. Результаты</a></li>
+    <li><a href="#cheat">10. Шпаргалка</a></li>
+  </ol>
+</nav>
+
+<main>
+<header>
+  <div class="eyebrow">Efficient NN · ДЗ-2 · Wijmans et al., ICLR 2025</div>
+  <h1>Cut Cross-Entropy на примерах</h1>
+  <p class="lede" style="margin-top:14px">Статья «Cut Your Losses in Large-Vocabulary Language Models» решает одну проблему: при обучении LLM больше всего памяти съедает не сеть, а последний слой, то есть матрица логитов размером «токены × словарь». Авторы показывают, как посчитать cross-entropy и её градиент, вообще не записывая эту матрицу в память GPU.</p>
+  <div class="stats">
+    <div class="stat"><div class="v"><s>24 000</s> → 1 МБ</div><div class="k">память на loss, Gemma 2 (2B), 8192 токена</div></div>
+    <div class="stat"><div class="v"><s>28 000</s> → 1 164 МБ</div><div class="k">loss + градиент (почти ровно размер самих градиентов)</div></div>
+    <div class="stat"><div class="v">145 мс</div><div class="k">loss + градиент; у <code>torch.compile</code> 143 мс</div></div>
+  </div>
+  <p style="font-size:.9rem;color:var(--muted)">Ниже весь метод разобран на одном игрушечном примере: 3 токена, словарь из 6 слов, эмбеддинги размерности 2. Все матрицы на странице посчитаны по-настоящему, их можно проверить руками.</p>
+</header>
+
+<!-- ===================================================== 1 -->
+<section id="problem">
+  <div class="eyebrow">Шаг 1</div>
+  <h2>Где кончается память</h2>
+  <p>Последний слой языковой модели устроен просто. Для каждой позиции <span class="m">i</span> бэкбон выдаёт вектор <span class="m">E<sub>i</sub></span> длины <span class="m">D</span>. Классификатор <span class="m">C</span> хранит по вектору длины <span class="m">D</span> на каждое слово словаря. Логит слова <span class="m">v</span> — это скалярное произведение <span class="m">C<sub>v</sub>·E<sub>i</sub></span>.</p>
+  <div class="formula">
+    <b>E</b> ∈ ℝ<sup>D×N</sup>, &nbsp; <b>C</b> ∈ ℝ<sup>D×|V|</sup> &nbsp; ⟹ &nbsp; логиты <b>A</b> = <b>C</b><sup>⊤</sup><b>E</b> ∈ ℝ<sup>|V|×N</sup>
+    <span class="note">N — число токенов в батче (все позиции всех последовательностей), |V| — размер словаря, D — скрытая размерность.</span>
+  </div>
+  <p>На инференсе это не проблема: генерируем по одному токену, нужна одна строка логитов. На обучении из-за teacher forcing считаем предсказания сразу для всех <span class="m">N</span> позиций, и матрица <span class="m">|V|×N</span> становится огромной. <span class="m">E</span> и <span class="m">C</span> растут линейно, а логиты растут как <em>произведение</em> <span class="m">N·|V|</span>.</p>
+
+  <div class="panel" id="calc">
+    <h4>Калькулятор: сколько весят матрицы последнего слоя</h4>
+    <div class="row" style="margin-bottom:14px" role="group" aria-label="Пресеты моделей">
+      <button type="button" data-preset="gemma" aria-pressed="true">Gemma 2 (2B)</button>
+      <button type="button" data-preset="llama" aria-pressed="false">Llama 3 (8B)</button>
+      <button type="button" data-preset="phi" aria-pressed="false">Phi 3.5 Mini</button>
+    </div>
+    <div class="row" style="margin-bottom:18px">
+      <label class="ctl" for="inN">Токенов в батче N <output id="outN"></output><input id="inN" type="range" min="10" max="17" step="1" value="13"></label>
+      <label class="ctl" for="inV">Словарь |V| <output id="outV"></output><input id="inV" type="range" min="0" max="4" step="1" value="4"></label>
+    </div>
+    <div class="bars" id="calcBars"></div>
+    <p class="mx-cap" style="margin-top:12px">E и C в bf16 (2 байта), логиты в fp32 (4 байта), одна копия. Реальный PyTorch держит несколько копий (bf16-логиты, softcap, log-softmax, градиент), поэтому в статье baseline для Gemma 2 занимает 24 ГБ, а не 7,8. Здесь 1 ГБ = 1024 МБ, как в таблицах статьи. Что такое LSE в строке CCE, см. <a href="#lse-def">определение в шаге 2</a>.</p>
+  </div>
+
+  <p>Для Gemma 2 (2B) с |V| = 256 000 одна копия логитов на 8192 токена весит больше, чем сами веса классификатора, и в 200 с лишним раз больше входа <span class="m">E</span>. По оценке авторов (рис. 1), логиты занимают до 89% всей памяти обучения Gemma 2 (2B). Остальные техники (FSDP, чекпоинтинг активаций, FlashAttention) уже сжали всё остальное, и последний слой остался главным потребителем памяти.</p>
+</section>
+
+<!-- ===================================================== 2 -->
+<section id="idea">
+  <div class="eyebrow">Шаг 2</div>
+  <h2>Главная идея: для loss нужны две величины на токен</h2>
+  <div class="panel" id="lse-def">
+    <h4>Определение: LSE (log-sum-exp)</h4>
+    <p>LSE вектора — это логарифм суммы экспонент его элементов. В статье он берётся по столбцу логитов позиции <span class="m">i</span>, то есть по всему словарю:</p>
+    <div class="formula" style="margin-bottom:14px">
+      LSE<sub>i</sub> = ln Σ<sub>k=1</sub><sup>|V|</sup> e<sup>A[k,i]</sup> = ln Z<sub>i</sub>
+      <span class="note">Z<sub>i</sub> — знаменатель softmax позиции i. LSE — его логарифм, одно число на позицию. На всех позициях батча получается вектор LSE длины N.</span>
+    </div>
+    <ul class="plain" style="margin-bottom:0">
+      <li><b>Зачем он нужен.</b> Через LSE softmax записывается без явного деления: S[k,i] = e<sup>A[k,i]</sup> / Z<sub>i</sub> = e<sup>A[k,i] − LSE<sub>i</sub></sup>. Поэтому, зная одно число LSE<sub>i</sub>, можно посчитать вероятность любого слова в позиции i.</li>
+      <li><b>Как его понимать.</b> Это «мягкий максимум»: max<sub>k</sub> A[k,i] ≤ LSE<sub>i</sub> ≤ max<sub>k</sub> A[k,i] + ln|V|. Если один логит сильно больше остальных, LSE почти равен ему.</li>
+      <li><b>Как его считают на практике.</b> Сначала вычитают максимум m, чтобы экспоненты не переполнились: LSE = m + ln Σ e<sup>A[k,i] − m</sup>.</li>
+      <li><b>Пример.</b> Первая позиция игрушечного примера, логиты (−1, 2, 0, 1, 1, 0). Сумма экспонент Z = 15,193, LSE = ln 15,193 = 2,721. Максимум равен 2, и LSE чуть больше него.</li>
+    </ul>
+  </div>
+  <p>Запишем log-вероятность правильного токена <span class="m">x<sub>i</sub></span> через softmax и раскроем логарифм:</p>
+  <div class="formula">
+    log softmax<sub>x<sub>i</sub></sub>(<b>C</b><sup>⊤</sup>E<sub>i</sub>) &nbsp;=&nbsp; <span class="hl-t">C<sub>x<sub>i</sub></sub><sup>⊤</sup>E<sub>i</sub></span> &nbsp;−&nbsp; <span class="hl-h">log Σ<sub>j</sub> exp(C<sub>j</sub><sup>⊤</sup>E<sub>i</sub>)</span>
+    <span class="note"><span class="hl-t">первое слагаемое</span> — логит правильного слова (одно число); <span class="hl-h">второе</span> — log-sum-exp (LSE) по всему словарю (тоже одно число). Loss = LSE − правильный логит.</span>
+  </div>
+  <p>На выходе нужно <b>2 числа на токен</b>, а не <span class="m">|V|</span>. Промежуточная матрица логитов нужна только чтобы их посчитать, и её можно не хранить, если считать кусками и сразу сворачивать. Это та же мысль, что во FlashAttention: там не хранят матрицу внимания <span class="m">N×N</span>, здесь не хранят матрицу <span class="m">|V|×N</span>.</p>
+
+  <h3>Игрушечный пример</h3>
+  <p>Предложение «кот сидит на ковре». Модель по префиксу предсказывает следующее слово: после «кот» → «сидит», после «кот сидит» → «на», после «кот сидит на» → «ковре». Значит <span class="m">N = 3</span>, <span class="m">D = 2</span>, словарь из 6 слов.</p>
+  <div class="panel">
+    <div class="row scroll" style="gap:22px">
+      <div><div class="mx-title">C<sup>⊤</sup> (|V|×D) — классификатор</div><div id="mxC"></div></div>
+      <div><div class="mx-title">E (D×N) — выход бэкбона</div><div id="mxE"></div></div>
+    </div>
+  </div>
+  <p>Перемножим. Каждая клетка — логит «слово × позиция». Рамкой выделен правильный ответ для каждого столбца. Сама матрица здесь только для наглядности: <b>CCE её никогда целиком не строит</b>.</p>
+  <div class="panel">
+    <div class="mx-title">A = C<sup>⊤</sup>E (|V|×N) — логиты</div>
+    <div class="scroll" id="mxA"></div>
+    <div class="mx-cap">Цвет — величина логита. Рамка — правильный следующий токен <span class="m">x<sub>i</sub></span>.</div>
+  </div>
+  <p>Из каждого столбца нам нужны ровно две вещи: число в рамке и LSE всего столбца.</p>
+  <div class="panel scroll"><table class="data" id="tblLoss"></table></div>
+  <p>Третий токен угадан хуже: у «на» логит 2, у правильного «ковре» только 1,5, поэтому loss больше. Дальше CCE считает эти два столбца таблицы («логит» и «LSE») двумя отдельными ядрами, не записывая <span class="m">A</span> в память.</p>
+</section>
+
+<!-- ===================================================== 3 -->
+<section id="gpu">
+  <div class="eyebrow">Шаг 3</div>
+  <h2>Где физически идут вычисления</h2>
+  <p>У GPU два уровня памяти, которые важны для статьи. «Не материализовать матрицу» значит: её кусок живёт только в быстрой памяти на чипе, пока его обрабатывают, и в глобальную память не пишется.</p>
+  <div class="mem">
+    <div class="membox h"><div class="t"><span class="tag hbm">HBM</span> глобальная память</div><div class="sub">80 ГБ на A100/H100, медленная (≈2 ТБ/с). Тут лежат E, C, итоговые LSE и градиенты. Именно её мы экономим.</div></div>
+    <div class="membox s"><div class="t"><span class="tag sram">SRAM</span> shared-память блока</div><div class="sub">Сотни КБ на мультипроцессор, в разы быстрее. Сюда грузим куски E и C, считаем кусок логитов, сворачиваем его и выбрасываем.</div></div>
+  </div>
+  <p style="margin-top:14px">Отсюда же нюанс по скорости. Логиты мы не храним, значит в обратном проходе их придётся <b>пересчитать</b> (как при activation checkpointing). Лишние FLOPs окупаются тем, что не надо гонять гигабайты через HBM.</p>
+</section>
+
+<!-- ===================================================== 4 -->
+<section id="fwd1">
+  <div class="eyebrow">Шаг 4 · прямой проход, часть 1 · Алгоритм 1</div>
+  <h2>Логит правильного слова: индексированное умножение</h2>
+  <p>Наивно есть два варианта: посчитать всю <span class="m">C<sup>⊤</sup>E</span> и взять из неё нужные клетки (память <span class="m">N·|V|</span>), или сначала собрать матрицу нужных столбцов <span class="m">C<sub>x</sub></span> (память <span class="m">N·D</span>). CCE делает это в одном ядре: для токена <span class="m">i</span> загружает в SRAM столбец <span class="m">E<sub>i</sub></span> и столбец <span class="m">C<sub>x<sub>i</sub></sub></span> по индексу, считает скалярное произведение и пишет в HBM одно число.</p>
+  <div class="panel scroll" id="idxDemo"></div>
+  <p>В реальном ядре это делается блоками: <span class="m">N<sub>B</sub></span> токенов за раз, и по <span class="m">D</span> тоже кусками <span class="m">D<sub>B</sub></span>, аккумулируя сумму. Сути это не меняет. Память сверх результата: 0.</p>
+</section>
+
+<!-- ===================================================== 5 -->
+<section id="fwd2">
+  <div class="eyebrow">Шаг 5 · прямой проход, часть 2 · Алгоритм 2</div>
+  <h2>LSE по блокам словаря</h2>
+  <p>Со вторым слагаемым сложнее: LSE зависит от <em>всех</em> <span class="m">|V|</span> логитов столбца. Решение: резать словарь на блоки по <span class="m">V<sub>B</sub></span> слов, для каждого блока считать свой маленький LSE и вливать его в общий. Работает, потому что LSE ассоциативен:</p>
+  <div class="formula">
+    LSE(a ∪ b) = log( e<sup>LSE(a)</sup> + e<sup>LSE(b)</sup> ) = max + log(1 + e<sup>−|LSE(a)−LSE(b)|</sup>)
+    <span class="note">Правая форма численно устойчива: экспонента никогда не переполняется. Начинаем с LSE = −∞ (пустое множество).</span>
+  </div>
+  <p>В примере <span class="m">V<sub>B</sub> = 2</span>, значит 3 блока словаря. Пройдите по шагам: слева то, что лежит в HBM, справа то, что сейчас в SRAM.</p>
+
+  <div class="panel" id="lseDemo">
+    <div class="stepper">
+      <button type="button" id="lsePrev">← Назад</button>
+      <button type="button" id="lseNext">Следующий блок →</button>
+      <button type="button" id="lseReset">Сначала</button>
+      <span class="pos" id="lsePos"></span>
+    </div>
+    <div class="mem">
+      <div class="membox h">
+        <div class="t"><span class="tag hbm">HBM</span> глобальная память</div>
+        <div class="sub">E, C (уже есть) + вектор LSE длины N. Матрицы логитов здесь нет.</div>
+        <div class="vec" id="lseVec"></div>
+      </div>
+      <div class="membox s">
+        <div class="t"><span class="tag sram">SRAM</span> <span id="sramTitle"></span></div>
+        <div class="sub" id="sramSub"></div>
+        <div class="scroll" id="sramBlock"></div>
+      </div>
+    </div>
+    <div class="log" id="lseLog"></div>
+    <div class="scroll" style="margin-top:14px"><div class="mx-title" style="font-size:.8rem;color:var(--muted)">Для сравнения: вся A. Серые клетки уже выброшены или ещё не посчитаны</div><div id="lseFull"></div></div>
+  </div>
+
+  <p>После третьего блока получаем ровно те же LSE, что в таблице из шага 2 (2,721; 2,553; 2,783), хотя больше двух строк логитов одновременно не существовало.</p>
+  <h3>Параллелизм и блокировка</h3>
+  <p>На GPU блоки «токены × слова» обрабатываются параллельно, как тайлы в обычном matmul. Значит несколько CUDA-блоков с одним диапазоном токенов <span class="m">n</span> и разными диапазонами словаря одновременно хотят обновить один и тот же <span class="m">LSE<sub>n</sub></span>. Авторы защищают это обновление спин-локом на атомарной операции. Порядок слияния не важен, так как операция ассоциативна и коммутативна.</p>
+  <div class="algo"><span class="c"># Алгоритм 2, упрощённо</span>
+<span class="h">LSE = [−∞] * N</span>                        <span class="c"># в HBM</span>
+for each pair (блок токенов n, блок словаря v):   <span class="c"># параллельно</span>
+    <span class="s">A_nv = C_v.T @ E_n</span>                   <span class="c"># V_B × N_B, только в SRAM</span>
+    <span class="s">lse_nv = logsumexp(A_nv, по словам)</span>   <span class="c"># N_B чисел</span>
+    with lock: <span class="h">LSE_n = logaddexp(LSE_n, lse_nv)</span></div>
+</section>
+
+<!-- ===================================================== 6 -->
+<section id="bwd">
+  <div class="eyebrow">Шаг 6 · обратный проход · Алгоритмы 3–4</div>
+  <h2>Градиент без матрицы логитов</h2>
+  <p>Будем минимизировать <span class="m">L = Σ<sub>i</sub>(LSE<sub>i</sub> − A<sub>x<sub>i</sub>,i</sub>)</span>. Производная по логитам — классика для softmax + cross-entropy:</p>
+  <div class="formula">
+    G = ∂L/∂A = S − Y, &nbsp;&nbsp; S = softmax(A) = <span class="hl-t">exp(A − LSE)</span>, &nbsp;&nbsp; Y = one-hot(x)
+    <span class="note">Ключевой трюк: знаменатель softmax уже посчитан. LSE сохранили в прямом проходе (всего N чисел), поэтому любой блок S считается независимо, без повторной синхронизации по словарю. (В статье знак обратный, G = Y − S: они дифференцируют log-likelihood, а не loss.)</span>
+  </div>
+  <p>Дальше градиенты по входам последнего слоя — два матричных произведения с одной и той же G:</p>
+  <div class="formula">
+    ∇E = C · G &nbsp;(D×N), &nbsp;&nbsp;&nbsp; ∇C = E · G<sup>⊤</sup> &nbsp;(D×|V|)
+  </div>
+  <p>Посмотрим на примере. Блоки словаря разделены промежутками — именно такими кусками ядро их пересчитывает.</p>
+  <div class="panel">
+    <div class="row scroll" style="gap:18px">
+      <div><div class="mx-title">S = exp(A − LSE)</div><div id="mxS"></div></div>
+      <div class="eq">→</div>
+      <div><div class="mx-title">G = S − Y</div><div id="mxG"></div></div>
+    </div>
+    <div class="mx-cap">В G правильная клетка столбца отрицательна (тёплый цвет): градиент тянет её логит вверх. Остальные положительны и равны вероятностям.</div>
+  </div>
+  <div class="panel">
+    <div class="row scroll" style="gap:22px">
+      <div><div class="mx-title">∇E = C · G (D×N)</div><div id="mxdE"></div></div>
+      <div><div class="mx-title">∇C = E · G<sup>⊤</sup> (D×|V|)</div><div id="mxdC"></div></div>
+    </div>
+    <div class="mx-cap">Эти результаты неизбежно лежат в HBM: их размер равен размеру E и C. В статье это «Lower bound» = 1161 МБ для Gemma 2: ∇C (256 000×2304 в bf16) плюс ∇E.</div>
+  </div>
+  <h3>Как это устроено в ядре</h3>
+  <p>Для каждой пары блоков (токены <span class="m">n</span>, слова <span class="m">v</span>): заново посчитать <span class="m">A<sub>nv</sub></span> в SRAM, из него <span class="m">S<sub>nv</sub></span> и <span class="m">G<sub>nv</sub></span>, затем сразу добавить вклад блока в <span class="m">∇E<sub>n</sub></span> и <span class="m">∇C<sub>v</sub></span>. Вклады от разных блоков суммируются в HBM атомарными сложениями.</p>
+  <div class="algo"><span class="c"># Алгоритм 4 (loss целиком), упрощённо</span>
+for each pair (блок токенов n, блок словаря v):
+    <span class="s">A_nv = C_v.T @ E_n</span>                   <span class="c"># пересчёт в SRAM</span>
+    <span class="s">G_nv = exp(A_nv − LSE_n) − onehot</span>     <span class="c"># LSE_n из прямого прохода</span>
+    if all(|G_nv| &lt; ε): skip                <span class="c"># ← фильтрация, шаг 8</span>
+    <span class="h">∇E_n += C_v @ G_nv</span>                   <span class="c"># atomic add в HBM</span>
+    <span class="h">∇C_v += E_n @ G_nv.T</span>                 <span class="c"># atomic add в HBM</span></div>
+  <p>Отдельный forward и backward (в отличие от Liger Kernels, где loss и градиент считаются вместе) позволяют пользователю делать с loss что угодно между ними: маскировать, взвешивать и т.п.</p>
+  <div class="callout warm"><p>Узкое место здесь уже не память, а скорость: нужно пересчитать все <span class="m">|V|·N</span> логитов и сделать два больших matmul с атомиками. Без оптимизаций такой backward в 3,4 раза медленнее (таблица 1, строка 7). Следующие два шага — про то, как это ускорить.</p></div>
+</section>
+
+<!-- ===================================================== 6a -->
+<section id="grad">
+  <div class="eyebrow">Шаг 6а · подробно</div>
+  <h2>Откуда берётся G и почему с ε сравнивают его</h2>
+  <p>Разберём формулу G = S − Y по кускам на первом столбце примера: позиция «кот» → правильное слово «сидит».</p>
+
+  <h3>1. Откуда L<sub>i</sub> = LSE<sub>i</sub> − A[x<sub>i</sub>, i]</h3>
+  <p>Cross-entropy для одной позиции — это минус логарифм вероятности, которую модель дала правильному слову. Вероятность даёт softmax по столбцу логитов:</p>
+  <div class="formula" style="text-align:left;line-height:2.1">
+    p(x<sub>i</sub>) = e<sup>A[x<sub>i</sub>,i]</sup> / Z<sub>i</sub>, &nbsp;&nbsp; где Z<sub>i</sub> = Σ<sub>k</sub> e<sup>A[k,i]</sup> &nbsp;<span style="font-family:var(--f-body);font-size:.8rem;color:var(--muted)">(сумма по всем словам словаря)</span><br>
+    L<sub>i</sub> = −ln p(x<sub>i</sub>) = −( A[x<sub>i</sub>,i] − ln Z<sub>i</sub> ) = <span class="hl-h">ln Z<sub>i</sub></span> − <span class="hl-t">A[x<sub>i</sub>,i]</span><br>
+    ln Z<sub>i</sub> — это и есть <span class="hl-h">LSE<sub>i</sub></span> = ln Σ<sub>k</sub> e<sup>A[k,i]</sup> &nbsp;⟹&nbsp; L<sub>i</sub> = <span class="hl-h">LSE<sub>i</sub></span> − <span class="hl-t">A[x<sub>i</sub>,i]</span>
+    <span class="note">Логарифм дроби = логарифм числителя − логарифм знаменателя, а ln e<sup>a</sup> = a. Больше ничего не используется.</span>
+  </div>
+  <div class="panel scroll" id="lossCol"></div>
+  <div class="callout">
+    <p><b>Коротко, чтобы запомнить.</b> Это обычная cross-entropy, просто логарифм раскрыт:</p>
+    <ul class="plain" style="margin-bottom:0">
+      <li>softmax по столбцу даёт вероятность правильного слова: p = e<sup>A[x<sub>i</sub>,i]</sup> / Z<sub>i</sub>, где Z<sub>i</sub> = Σ<sub>k</sub> e<sup>A[k,i]</sup>;</li>
+      <li>loss — минус логарифм этой вероятности. Логарифм дроби равен разности логарифмов: −ln p = ln Z<sub>i</sub> − A[x<sub>i</sub>,i];</li>
+      <li>ln Z<sub>i</sub> — это по определению LSE<sub>i</sub>. Итого L<sub>i</sub> = LSE<sub>i</sub> − A[x<sub>i</sub>,i].</li>
+    </ul>
+  </div>
+
+  <h3>2. От A к G: пять матриц подряд</h3>
+  <p>Теперь всё то же самое для всех трёх позиций сразу. Каждый столбец считается независимо от остальных.</p>
+  <div class="panel">
+    <div class="row scroll" style="gap:14px;align-items:flex-start">
+      <div><div class="mx-title">① A (логиты)</div><div id="gA"></div></div>
+      <div class="eq">→</div>
+      <div><div class="mx-title">② e<sup>A</sup></div><div id="gExp"></div></div>
+      <div class="eq">→</div>
+      <div><div class="mx-title">③ S = e<sup>A</sup> / Z</div><div id="gS"></div></div>
+    </div>
+    <div class="row scroll" style="gap:14px;align-items:flex-start;margin-top:18px">
+      <div><div class="mx-title">③ S</div><div id="gS2"></div></div>
+      <div class="eq">−</div>
+      <div><div class="mx-title">④ Y (one-hot правильных)</div><div id="gY"></div></div>
+      <div class="eq">=</div>
+      <div><div class="mx-title">⑤ G = ∂L/∂A</div><div id="gG"></div></div>
+    </div>
+    <div class="mx-cap">② Под экспонентами — строка Z (сумма столбца) и LSE = ln Z. ③ Деление на Z то же самое, что e<sup>A − LSE</sup>; поэтому в обратном проходе хватает сохранённого LSE. ⑤ Каждый столбец G в сумме даёт 0: вероятности дают 1, и из них вычли одну единицу.</div>
+  </div>
+
+  <h3>3. Почему ∂LSE/∂A[j,i] = S[j,i]</h3>
+  <p>LSE<sub>i</sub> = ln Z<sub>i</sub>, где Z<sub>i</sub> — сумма экспонент столбца. Чтобы продифференцировать по одному логиту A[j,i], нужны два факта:</p>
+  <ul class="plain">
+    <li>производная логарифма: (ln u)′ = u′ / u;</li>
+    <li>из всей суммы Z<sub>i</sub> = e<sup>A[1,i]</sup> + … + e<sup>A[|V|,i]</sup> от A[j,i] зависит только одно слагаемое e<sup>A[j,i]</sup>, а его производная — оно само.</li>
+  </ul>
+  <div class="formula">
+    ∂LSE<sub>i</sub>/∂A[j,i] = (1/Z<sub>i</sub>) · ∂Z<sub>i</sub>/∂A[j,i] = e<sup>A[j,i]</sup> / Z<sub>i</sub> = S[j,i]
+    <span class="note">Второе слагаемое loss, −A[x<sub>i</sub>,i], зависит только от логита правильного слова: его производная −1 при j = x<sub>i</sub> и 0 иначе. Это −Y[j,i]. Вместе: G[j,i] = S[j,i] − Y[j,i].</span>
+  </div>
+  <div class="callout">
+    <p><b>Коротко, чтобы запомнить.</b> Нужны два факта:</p>
+    <ul class="plain">
+      <li>производная логарифма: (ln u)′ = u′ / u;</li>
+      <li>в сумме Z<sub>i</sub> = e<sup>A[1,i]</sup> + … + e<sup>A[|V|,i]</sup> от A[j,i] зависит только одно слагаемое, e<sup>A[j,i]</sup>, и его производная равна ему самому.</li>
+    </ul>
+    <p>Получаем ∂LSE<sub>i</sub>/∂A[j,i] = (1/Z<sub>i</sub>) · e<sup>A[j,i]</sup> = S[j,i]. Второе слагаемое loss, −A[x<sub>i</sub>,i], даёт −1 только для правильного слова (j = x<sub>i</sub>), для остальных 0. Итого G = S − Y.</p>
+  </div>
+  <p>Проверим численно: подвиньте один логит первого столбца на δ и сравните, насколько реально изменится loss, с предсказанием G·δ.</p>
+  <div class="panel" id="nudge">
+    <div class="row" style="margin-bottom:12px" role="group" aria-label="Какой логит двигать" id="nudgeBtns"></div>
+    <label class="ctl" for="nudgeD" style="max-width:26rem">Сдвиг δ <output id="nudgeDo"></output><input id="nudgeD" type="range" min="-1" max="1" step="0.05" value="0.5"></label>
+    <div class="scroll" style="margin-top:12px"><table class="data" id="nudgeTbl"></table></div>
+    <div class="mx-cap" id="nudgeCap"></div>
+  </div>
+  <p>Смысл G виден и без формул. Подняли логит неправильного слова — у него отъелась вероятность, loss вырос, и тем сильнее, чем вероятнее было слово (G = S &gt; 0). Подняли логит правильного — loss упал (G = S − 1 &lt; 0).</p>
+
+  <h3>4. Куда G идёт дальше и почему решает именно он</h3>
+  <p>Логит A[j,i] = C<sub>j</sub>·E<sub>i</sub>, поэтому по цепному правилу ячейка (j, i) добавляет в ∇E<sub>i</sub> вектор G[j,i]·C<sub>j</sub>, а в ∇C<sub>j</sub> вектор G[j,i]·E<sub>i</sub>. Вот все 6 вкладов в ∇E<sub>1</sub>:</p>
+  <div class="panel scroll"><table class="data" id="contribTbl"></table></div>
+  <p>Размер вклада пропорционален |G[j,i]|, а C<sub>j</sub> и E<sub>i</sub> — обычные векторы порядка единицы. Если |G| &lt; 2<sup>−12</sup>, вклад настолько мал относительно остальных слагаемых, что при сложении в bf16 он исчезнет (шаг 7). Значит, решать «считать или нет» нужно по G.</p>
+  <p>По самому логиту этого не понять. Логит — ненормированная оценка, важно лишь, как он соотносится с остальными логитами того же столбца. Одно и то же значение 3 может означать вероятность 0,6 или 0,00001:</p>
+
+  <div class="panel">
+    <h4>Две позиции, по 10 слов. Точка — логит слова</h4>
+    <div class="scroll"><svg id="nline" role="img" aria-label="Логиты двух позиций на числовой оси с отметками LSE и порога" style="display:block;min-width:620px;width:100%" viewBox="0 0 700 230"></svg></div>
+    <div class="scroll" style="margin-top:8px"><table class="data" id="nlineTbl"></table></div>
+  </div>
+
+  <h3>5. «S &lt; ε равносильно A &lt; LSE + ln ε»</h3>
+  <p>Это то же условие, просто переписанное через логиты. Логарифм возрастает, поэтому неравенство можно логарифмировать:</p>
+  <div class="formula" style="line-height:2.1">
+    S[j,i] &lt; ε &nbsp;⟺&nbsp; e<sup>A[j,i] − LSE<sub>i</sub></sup> &lt; ε &nbsp;⟺&nbsp; A[j,i] − LSE<sub>i</sub> &lt; ln ε &nbsp;⟺&nbsp; A[j,i] &lt; LSE<sub>i</sub> + ln ε
+    <span class="note">ln 2<sup>−12</sup> = −12·ln 2 ≈ −8,32. По-русски: слово в позиции i пренебрежимо, если его логит ниже LSE<sub>i</sub> больше чем на 8,32.</span>
+  </div>
+  <p>На картинке выше это пунктир «LSE − 8,32». Всё, что левее него, отбрасывается. Главное: <b>у каждой позиции этот порог свой</b>, потому что LSE<sub>i</sub> у каждой свой. У позиции α порог ≈ −4,8, у позиции β ≈ 5,9. Одного общего порога на логиты не существует, а порог на S общий для всех: 2<sup>−12</sup>. Поэтому в ядре удобнее сравнивать S (или G), тем более что LSE из прямого прохода уже есть.</p>
+  <p>В Алгоритме 3 сравнивают S, в Алгоритме 4 — |G|. Для всех слов, кроме правильного, это одно и то же. Для правильного |G| = 1 − S, почти всегда много больше ε, поэтому блок с правильным словом не пропускается никогда.</p>
+</section>
+
+<!-- ===================================================== 7 -->
+<section id="bf16">
+  <div class="eyebrow">Шаг 7 · приложение E</div>
+  <h2>Почему маленькие вероятности можно просто пропустить</h2>
+  <p>В bfloat16 на мантиссу 7 бит (плюс неявная единица). При сложении двух чисел меньшее сдвигают к порядку большего, и младшие биты теряются. Если одно число меньше другого примерно в 2<sup>8</sup> раз, оно исчезает целиком. Попробуйте:</p>
+  <div class="panel" id="bfDemo">
+    <div class="row" style="margin-bottom:14px">
+      <label class="ctl" for="bfB">Накопленная сумма b <output id="bfBo"></output><input id="bfB" type="range" min="0" max="8" step="1" value="0"></label>
+      <label class="ctl" for="bfA">Добавляемое a <output id="bfAo"></output><input id="bfA" type="range" min="1" max="16" step="1" value="6"></label>
+    </div>
+    <div class="bits" id="bfBits"></div>
+  </div>
+  <p>Softmax в каждом столбце суммируется в 1. Авторы берут порог <b>ε = 2<sup>−12</sup></b>: значения меньше него при накоплении в bf16 почти наверняка потеряются (7 бит мантиссы + 5 бит запаса на правила округления и блочное суммирование). Следствие: в столбце может быть не больше <span class="m">1/ε = 4096</span> «значимых» вероятностей, а на деле их ещё меньше.</p>
+  <div class="callout"><p>Рис. 3 статьи: средняя вероятность k-го по величине токена падает по степенному закону, и уже около 50-го места оказывается ниже 2<sup>−12</sup>. В реальных моделях ненулевыми после порога остаются <b>меньше 0,02%</b> элементов S. Из 256 000 слов словаря градиент реально получают несколько десятков на токен.</p></div>
+</section>
+
+<!-- ===================================================== 8 -->
+<section id="filter">
+  <div class="eyebrow">Шаг 8 · раздел 4.3</div>
+  <h2>Фильтрация градиента и сортировка словаря</h2>
+  <p><b>Фильтрация.</b> Если в блоке <span class="m">G<sub>nv</sub></span> все значения меньше ε по модулю, два matmul для этого блока пропускаются. Пересчёт <span class="m">A<sub>nv</sub></span> всё равно нужен (иначе не узнать, что блок пустой), но самая дорогая часть с атомиками в HBM выпадает. Проверка идёт по блоку целиком: Triton даёт ветвиться только на уровне блока.</p>
+  <p><b>Сортировка.</b> Выгода зависит от того, сколько блоков целиком пустые. Если одно популярное слово попало в блок, блок уже не пропустить. Поэтому в прямом проходе для каждого слова считают средний логит по батчу (буфер размера <span class="m">|V|</span>, около 1 МБ), и в обратном проходе группируют слова в блоки по этому среднему. Популярные слова собираются в несколько плотных блоков, остальные блоки остаются пустыми.</p>
+
+  <div class="panel">
+    <h4>Модель: 48 слов × 16 токенов, блоки 8 × 4</h4>
+    <div class="row" style="margin-bottom:16px">
+      <label class="ctl" for="epsIn">Порог ε = 2<sup>−k</sup> <output id="epsOut"></output><input id="epsIn" type="range" min="4" max="20" step="1" value="12"></label>
+      <div style="display:flex;gap:8px;align-self:end"><button type="button" id="reseed">Другие данные</button></div>
+    </div>
+    <div class="grids scroll">
+      <div class="gcol"><div class="gt">Словарь как есть</div><div class="gs" id="gsA"></div><div id="gridA"></div></div>
+      <div class="gcol"><div class="gt">Отсортирован по среднему логиту</div><div class="gs" id="gsB"></div><div id="gridB"></div></div>
+    </div>
+    <div class="legend">
+      <span><i style="background:var(--sram)"></i>|G| ≥ ε, тем ярче, чем больше</span>
+      <span><i style="background:var(--hbm)"></i>правильный токен (G &lt; 0)</span>
+      <span><i style="background:repeating-linear-gradient(135deg,var(--muted) 0 2px,transparent 2px 5px)"></i>блок пропущен</span>
+    </div>
+    <p class="mx-cap" style="margin-top:10px">Строки — слова, столбцы — токены (как у A в статье). Данные синтетические: логиты со степенным спадом по популярности слова, плюс шум и пара «тематических» слов на токен.</p>
+  </div>
+  <p>В статье на Gemma 2 (2B): без фильтрации backward медленнее в 3,4 раза (357 мс против 145), без сортировки на 15% (159 мс против 145). Точность при этом не страдает, так как пропускается только то, что всё равно потерялось бы при округлении.</p>
+</section>
+
+<!-- ===================================================== 9 -->
+<section id="results">
+  <div class="eyebrow">Шаг 9 · раздел 5</div>
+  <h2>Что получилось</h2>
+  <p>Бенчмарк из таблицы 1: Gemma 2 (2B), 8192 токена, |V| = 256 000, D = 2304, A100 80 ГБ. Сравнивается только последний слой: loss + градиент.</p>
+  <div class="panel">
+    <h4>Пиковая память, МБ</h4>
+    <div class="bars" id="resMem"></div>
+    <h4 style="margin-top:22px">Время, мс</h4>
+    <div class="bars" id="resTime"></div>
+  </div>
+  <ul class="plain">
+    <li><b>Baseline</b> — обычный PyTorch; <b>torch.compile</b> сливает операции и экономит 43% памяти.</li>
+    <li><b>Torch Tune</b> и <b>Liger Kernels</b> режут батч на чанки. Больше чанков — меньше памяти, но больше запусков ядер и медленнее. Liger при этом вдвое медленнее baseline.</li>
+    <li><b>CCE</b> упирается в нижнюю границу (1161 МБ — это сами ∇E и ∇C) и по скорости наравне с <code>torch.compile</code>.</li>
+  </ul>
+  <h3>Сходимость</h3>
+  <p>Фильтрация делает градиент приближённым, поэтому надо проверить обучение. <b>Fine-tuning</b> (рис. 4): Gemma 2 2B, Phi 3.5 Mini, Qwen 2.5 7B, Mistral NeMo на Alpaca — кривые loss CCE и <code>torch.compile</code> неотличимы.</p>
+  <p><b>Pretraining</b> (рис. 5) оказался чувствительнее, нашли две проблемы:</p>
+  <ul class="plain">
+    <li>фильтрация по ∇C не даёт градиента редким словам, которые почти не встречаются в данных. Лечится вариантом <b>FullC</b>: для ∇C фильтр отключают;</li>
+    <li>атомарные суммы в HBM идут в bf16 и теряют точность. Лечится <b>суммированием Кэхэна</b>, которое хранит поправку во втором буфере (отсюда 2326 МБ вместо 1164).</li>
+  </ul>
+  <p>С вариантом <b>CCE-Kahan-FullC</b> perplexity на OpenWebText совпадает с baseline. Он медленнее (313 мс), но позволяет увеличить батч: для Mistral NeMo батч удвоился, и обучение стало на 16% быстрее.</p>
+  <h3>Зачем это всё: размер батча</h3>
+  <p>Рис. 1 / табл. A4: 16 GPU × 80 ГБ, FSDP, чекпоинтинг. Освободившаяся память уходит в батч: у Gemma 2 (2B) максимум растёт с 1,1 до 10,6 млн токенов (×9,5), у GPT-2 ×11,9, а у Llama 2 13B всего ×1,3. Выигрыш тем больше, чем больше словарь относительно остальной модели.</p>
+</section>
+
+<!-- ===================================================== 10 -->
+<section id="cheat">
+  <div class="eyebrow">Шаг 10</div>
+  <h2>Шпаргалка</h2>
+  <div class="panel scroll">
+    <table class="data">
+      <thead><tr><th>Метод</th><th>Доп. память</th><th>Что хранит</th></tr></thead>
+      <tbody>
+        <tr><td>Baseline / torch.compile</td><td>O(N·|V|)</td><td>матрица логитов (и её копии)</td></tr>
+        <tr><td>Torch Tune (чанки)</td><td>O(N·|V|/k)</td><td>логиты одного чанка из k</td></tr>
+        <tr><td>Liger Kernels</td><td>O(N·D)</td><td>градиент по E, считается вместе с loss</td></tr>
+        <tr class="me"><td>CCE</td><td>O(N + |V|)</td><td>LSE (N чисел) + средние логиты для сортировки (|V|)</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <h3>Весь метод в пяти пунктах</h3>
+  <ul class="plain">
+    <li>Loss = LSE − правильный логит. Нужны 2 числа на токен, а не |V|.</li>
+    <li>Правильный логит: одно ядро, индексированная загрузка <span class="m">C<sub>x<sub>i</sub></sub></span> + скалярное произведение.</li>
+    <li>LSE: тайлы логитов считаются в SRAM и вливаются в общий LSE через log-add-exp под блокировкой.</li>
+    <li>Backward: логиты пересчитываются, softmax = exp(A − LSE) благодаря сохранённому LSE, градиенты накапливаются атомиками.</li>
+    <li>Скорость: блоки, где весь |G| &lt; 2<sup>−12</sup>, пропускаются; словарь сортируется так, чтобы таких блоков стало больше.</li>
+  </ul>
+  <h3>Ограничения, которые называют сами авторы</h3>
+  <ul class="plain">
+    <li>Чем меньше отношение |V|/D, тем меньше выигрыш по времени. На Phi 3.5 Mini (|V| = 32 064, D = 3072) CCE на 50% медленнее <code>torch.compile</code> (34 против 22 мс), хотя памяти всё равно в разы меньше. Параллелизм CCE — это N×|V|, и рост D его не добавляет.</li>
+    <li>Реализация на Triton: ветвления (фильтр, блокировка) возможны только на уровне блока. На чистом CUDA можно тоньше.</li>
+    <li>Для pretraining нужен более медленный вариант Kahan-FullC.</li>
+  </ul>
+  <h3>Бонус: приложение B</h3>
+  <p>Токены без loss (паддинг, системный промпт, реплики пользователя) можно выкинуть <em>до</em> последнего слоя, и результат не изменится. Это ускоряет все методы до ~3 раз (CCE: 145 → 54 мс). Приём не специфичен для CCE, но его легко упустить.</p>
+</section>
+
+<footer>
+  Источник: E. Wijmans, B. Huval, A. Hertzberg, V. Koltun, P. Krähenbühl. <em>Cut Your Losses in Large-Vocabulary Language Models</em>. ICLR 2025, arXiv:2411.09009. Код: <a href="https://github.com/apple/ml-cross-entropy">github.com/apple/ml-cross-entropy</a>. Числа в разделе 9 — из таблиц 1, A1, A4 статьи.
+</footer>
+</main>
+</div>
+
+<script>
+(function(){
+"use strict";
+const $ = id => document.getElementById(id);
+const fmt = (x, d=2) => {
+  if (!isFinite(x)) return x < 0 ? "−∞" : "∞";
+  const s = Math.abs(x).toFixed(d).replace(".", ",");
+  return (x < 0 && Number(s.replace(",", ".")) !== 0 ? "−" : "") + s;
+};
+const lse = arr => { const m = Math.max(...arr); if (!isFinite(m)) return m; return m + Math.log(arr.reduce((s,v)=>s+Math.exp(v-m),0)); };
+const logaddexp = (a,b) => { if (!isFinite(a)) return b; if (!isFinite(b)) return a; const m=Math.max(a,b); return m + Math.log1p(Math.exp(-Math.abs(a-b))); };
+
+// ---------- игрушечные данные ----------
+const vocab = ["кот","сидит","на","ковре","пёс","."];
+const Cv = [[-1,0],[2,0],[0,2],[1,1],[1,-1],[0,-1]];          // строки C^T
+const Ecols = [[1,0],[0,1],[0.5,1]];                              // столбцы E
+const ctx = ["кот","кот сидит","кот сидит на"];
+const x = [1,2,3];
+const V=6, N=3, D=2, VB=2;
+const A = Cv.map(c => Ecols.map(e => c[0]*e[0]+c[1]*e[1]));
+const LSE = [0,1,2].map(n => lse(A.map(r=>r[n])));
+const S = A.map(r => r.map((a,n)=>Math.exp(a-LSE[n])));
+const G = S.map((r,v)=>r.map((s,n)=> s - (x[n]===v?1:0)));
+const dE = [0,1].map(d => [0,1,2].map(n => Cv.reduce((s,c,v)=>s + c[d]*G[v][n],0)));
+const dC = [0,1].map(d => vocab.map((_,v)=> Ecols.reduce((s,e,n)=>s + e[d]*G[v][n],0)));
+const colLab = ["E₁","E₂","E₃"];
+
+function heat(v, lo, hi, div){
+  if (div){
+    const m = Math.max(Math.abs(lo),Math.abs(hi)) || 1;
+    const p = Math.round(Math.min(1,Math.abs(v)/m)*62);
+    return `color-mix(in oklab, ${v<0?"var(--hbm)":"var(--sram)"} ${p}%, var(--surface))`;
+  }
+  const p = Math.round(((v-lo)/((hi-lo)||1))*62);
+  return `color-mix(in oklab, var(--sram) ${p}%, var(--surface))`;
+}
+function mx(M, rows, cols, o={}){
+  const flat = M.flat(), lo=Math.min(...flat), hi=Math.max(...flat);
+  let h = '<table class="mx"><thead><tr><th></th>'+cols.map(c=>`<th>${c}</th>`).join("")+'</tr></thead><tbody>';
+  M.forEach((r,i)=>{
+    if (o.gapEvery && i>0 && i%o.gapEvery===0) h += `<tr class="gap"><th></th>${cols.map(()=>"<td></td>").join("")}</tr>`;
+    h += `<tr><th>${rows[i]}</th>`;
+    r.forEach((v,j)=>{
+      const cls = [];
+      if (o.tgt && o.tgt[j]===i) cls.push("tgt");
+      const ghost = o.ghost && o.ghost(i,j);
+      if (ghost) cls.push("ghost");
+      const bg = (o.noheat||ghost) ? "var(--soft)" : heat(v,lo,hi,o.div);
+      h += `<td class="${cls.join(" ")}" style="background:${bg}">${ghost && o.hideGhost ? "·" : fmt(v,o.d??2)}</td>`;
+    });
+    h += "</tr>";
+  });
+  return h + "</tbody></table>";
+}
+
+$("mxC").innerHTML = mx(Cv, vocab, ["d₁","d₂"], {d:0, noheat:true});
+$("mxE").innerHTML = mx([[1,0,0.5],[0,1,1]], ["d₁","d₂"], colLab.map((c,i)=>`${c}<br><span style="font-size:.9em">«${ctx[i]}»</span>`), {d:1, noheat:true});
+$("mxA").innerHTML = mx(A, vocab, colLab.map((c,i)=>`${c}<br>→ ${vocab[x[i]]}`), {d:1, tgt:x});
+
+$("tblLoss").innerHTML = '<thead><tr><th>Позиция</th><th>Правильное слово</th><th>Логит A<sub>x,i</sub></th><th>LSE<sub>i</sub></th><th>Loss = LSE − логит</th><th>p = e<sup>−loss</sup></th></tr></thead><tbody>' +
+  [0,1,2].map(n=>`<tr><td>«${ctx[n]}» →</td><td style="font-family:var(--f-body)">${vocab[x[n]]}</td><td class="hl-t">${fmt(A[x[n]][n])}</td><td class="hl-h">${fmt(LSE[n],3)}</td><td>${fmt(LSE[n]-A[x[n]][n],3)}</td><td>${fmt(Math.exp(A[x[n]][n]-LSE[n]),3)}</td></tr>`).join("") + '</tbody>';
+
+// ---------- индексированное умножение ----------
+(function(){
+  let h = '<table class="data"><thead><tr><th>Токен i</th><th>x<sub>i</sub></th><th>C<sub>x<sub>i</sub></sub> (из SRAM)</th><th>E<sub>i</sub> (из SRAM)</th><th>C<sub>x<sub>i</sub></sub>·E<sub>i</sub></th><th>→ в HBM</th></tr></thead><tbody>';
+  [0,1,2].map(n=>{
+    const c=Cv[x[n]], e=Ecols[n];
+    h += `<tr><td>${n+1}</td><td style="font-family:var(--f-body)">${vocab[x[n]]} (#${x[n]})</td><td>(${fmt(c[0],0)}, ${fmt(c[1],0)})</td><td>(${fmt(e[0],1)}, ${fmt(e[1],1)})</td><td>${fmt(c[0],0)}·${fmt(e[0],1)} + ${fmt(c[1],0)}·${fmt(e[1],1)}</td><td class="hl-t">${fmt(c[0]*e[0]+c[1]*e[1],1)}</td></tr>`;
+  });
+  $("idxDemo").innerHTML = h + '</tbody></table><div class="mx-cap">Остальные 5 строк словаря для каждого токена не трогаются вообще.</div>';
+})();
+
+// ---------- степпер LSE ----------
+(function(){
+  const nb = V/VB; let step = 0;
+  function render(){
+    const run = [ -Infinity,-Infinity,-Infinity ];
+    const lines = [];
+    for (let b=0;b<step;b++){
+      const rows=[b*VB,b*VB+1];
+      const blk = [0,1,2].map(n=>lse(rows.map(v=>A[v][n])));
+      if (b===step-1){
+        [0,1,2].forEach(n=>lines.push(`n=${n+1}: LSE_блока = log(e^${fmt(A[rows[0]][n],1)} + e^${fmt(A[rows[1]][n],1)}) = ${fmt(blk[n],3)};   LSE = logaddexp(${fmt(run[n],3)}, ${fmt(blk[n],3)}) = ${fmt(logaddexp(run[n],blk[n]),3)}`));
+      }
+      [0,1,2].forEach(n=>run[n]=logaddexp(run[n],blk[n]));
+    }
+    $("lseVec").innerHTML = run.map((v,n)=>`<span>LSE<sub>${n+1}</sub> = ${fmt(v,3)}</span>`).join("");
+    $("lsePos").textContent = `блок ${step} из ${nb}`;
+    $("lsePrev").disabled = step===0; $("lseNext").disabled = step===nb;
+    if (step===0){
+      $("sramTitle").textContent = "пусто";
+      $("sramSub").textContent = "Нажмите «Следующий блок», чтобы загрузить C₁ (слова 1–2) и E и посчитать их кусок логитов.";
+      $("sramBlock").innerHTML = "";
+      $("lseLog").textContent = "LSE инициализирован значением −∞ для каждого токена.";
+    } else {
+      const rows=[(step-1)*VB,(step-1)*VB+1];
+      $("sramTitle").textContent = `блок словаря ${step}: «${vocab[rows[0]]}», «${vocab[rows[1]]}»`;
+      $("sramSub").textContent = "A_nv = C_vᵀ E_n, размер V_B×N = 2×3. После свёртки будет выброшен.";
+      $("sramBlock").innerHTML = mx(rows.map(v=>A[v]), rows.map(v=>vocab[v]), colLab, {d:1, tgt:x.map(t=>rows.indexOf(t)).map(i=>i<0?-9:i)});
+      $("lseLog").textContent = lines.join("\n") + (step===nb ? "\n\nГотово: совпадает с прямым подсчётом по всему столбцу." : "");
+    }
+    const cur = step===0 ? [] : [(step-1)*VB,(step-1)*VB+1];
+    $("lseFull").innerHTML = mx(A, vocab, colLab, {d:1, tgt:x, ghost:(i)=>!cur.includes(i)});
+  }
+  $("lseNext").onclick=()=>{ if(step<nb){step++;render();} };
+  $("lsePrev").onclick=()=>{ if(step>0){step--;render();} };
+  $("lseReset").onclick=()=>{ step=0;render(); };
+  render();
+})();
+
+// ---------- backward ----------
+$("mxS").innerHTML = mx(S, vocab, colLab, {d:3, tgt:x, gapEvery:VB});
+$("mxG").innerHTML = mx(G, vocab, colLab, {d:3, tgt:x, gapEvery:VB, div:true});
+$("mxdE").innerHTML = mx(dE, ["d₁","d₂"], colLab, {d:3, div:true});
+$("mxdC").innerHTML = mx(dC, ["d₁","d₂"], vocab, {d:3, div:true});
+
+// ---------- шаг 6а: откуда G ----------
+(function(){
+  const n0 = 0, col = A.map(r=>r[n0]), Z0 = col.reduce((s,a)=>s+Math.exp(a),0);
+  $("lossCol").innerHTML = '<table class="data"><thead><tr><th>Слово k</th><th>A[k,1]</th><th>e<sup>A</sup></th><th>p = e<sup>A</sup>/Z</th></tr></thead><tbody>' +
+    vocab.map((w,k)=>`<tr${k===x[n0]?' class="me"':''}><td>${w}${k===x[n0]?" ← правильное":""}</td><td>${fmt(col[k],1)}</td><td>${fmt(Math.exp(col[k]),3)}</td><td>${fmt(Math.exp(col[k])/Z0,3)}</td></tr>`).join("") +
+    `<tr><td>Σ</td><td></td><td>Z = ${fmt(Z0,3)}</td><td>1,000</td></tr></tbody></table>` +
+    `<div class="mx-cap">LSE₁ = ln ${fmt(Z0,3)} = ${fmt(Math.log(Z0),3)}. &nbsp;L₁ = LSE₁ − A[сидит,1] = ${fmt(Math.log(Z0),3)} − 2 = ${fmt(Math.log(Z0)-2,3)} = −ln ${fmt(Math.exp(2)/Z0,3)}. Сходится с таблицей из шага 2.</div>`;
+
+  const expA = A.map(r=>r.map(Math.exp));
+  const Z = [0,1,2].map(n=>expA.reduce((s,r)=>s+r[n],0));
+  $("gA").innerHTML = mx(A, vocab, colLab, {d:1, tgt:x});
+  const extra = '<tr class="gap"><th></th><td></td><td></td><td></td></tr>' +
+    `<tr><th>Z = Σ</th>${Z.map(z=>`<td style="background:var(--soft);font-weight:600">${fmt(z,2)}</td>`).join("")}</tr>` +
+    `<tr><th>LSE = ln Z</th>${Z.map(z=>`<td class="hl-h" style="background:var(--soft)">${fmt(Math.log(z),3)}</td>`).join("")}</tr>`;
+  $("gExp").innerHTML = mx(expA, vocab, colLab, {d:2, tgt:x}).replace("</tbody>", extra + "</tbody>");
+  $("gS").innerHTML = mx(S, vocab, colLab, {d:3, tgt:x});
+  $("gS2").innerHTML = mx(S, vocab, colLab, {d:3, tgt:x});
+  $("gY").innerHTML = mx(S.map((r,v)=>r.map((_,n)=>x[n]===v?1:0)), vocab, colLab, {d:0, tgt:x, noheat:true});
+  $("gG").innerHTML = mx(G, vocab, colLab, {d:3, tgt:x, div:true});
+
+  // ручка
+  let j = 4;
+  const btns = $("nudgeBtns");
+  btns.innerHTML = vocab.map((w,k)=>`<button type="button" data-k="${k}" aria-pressed="${k===j}">${w}${k===x[n0]?" ✓":""}</button>`).join("");
+  function render(){
+    const d = Number($("nudgeD").value);
+    $("nudgeDo").textContent = (d>0?"+":"") + fmt(d,2);
+    btns.querySelectorAll("button").forEach(b=>b.setAttribute("aria-pressed", String(Number(b.dataset.k)===j)));
+    const c2 = col.map((a,k)=>k===j?a+d:a), L1 = lse(col), L2 = lse(c2);
+    const loss1 = L1 - col[x[n0]], loss2 = L2 - c2[x[n0]];
+    const g = G[j][n0];
+    $("nudgeTbl").innerHTML = `<thead><tr><th></th><th>A[${vocab[j]},1]</th><th>LSE₁</th><th>Loss L₁</th></tr></thead><tbody>
+      <tr><td>было</td><td>${fmt(col[j],2)}</td><td>${fmt(L1,4)}</td><td>${fmt(loss1,4)}</td></tr>
+      <tr><td>стало</td><td>${fmt(c2[j],2)}</td><td>${fmt(L2,4)}</td><td>${fmt(loss2,4)}</td></tr>
+      <tr class="me"><td>изменение</td><td>${fmt(d,2)}</td><td>${fmt(L2-L1,4)}</td><td>${fmt(loss2-loss1,4)}</td></tr>
+      <tr><td>предсказание</td><td></td><td>S·δ = ${fmt(S[j][n0],3)}·${fmt(d,2)} = ${fmt(S[j][n0]*d,4)}</td><td>G·δ = ${fmt(g,3)}·${fmt(d,2)} = ${fmt(g*d,4)}</td></tr></tbody>`;
+    $("nudgeCap").textContent = `Производная — это наклон в точке, поэтому предсказание точное только для малых δ. Уменьшите δ до 0,05 и сравните снова.` + (j===x[n0] ? ` Это правильное слово: G = S − 1 < 0, поднятие логита уменьшает loss.` : ``);
+  }
+  btns.onclick = e => { const b = e.target.closest("button"); if (b){ j = Number(b.dataset.k); render(); } };
+  $("nudgeD").oninput = render;
+  render();
+
+  // вклады в ∇E_1
+  let sx=0, sy=0;
+  const maxG = Math.max(...G.map(r=>Math.abs(r[n0])));
+  $("contribTbl").innerHTML = '<thead><tr><th>Слово j</th><th>G[j,1]</th><th>C<sub>j</sub></th><th>G·C<sub>j</sub></th><th style="width:30%">|G|</th></tr></thead><tbody>' +
+    vocab.map((w,k)=>{ const g=G[k][n0], c=Cv[k]; sx+=g*c[0]; sy+=g*c[1];
+      return `<tr><td>${w}</td><td>${fmt(g,3)}</td><td>(${fmt(c[0],0)}, ${fmt(c[1],0)})</td><td>(${fmt(g*c[0],3)}, ${fmt(g*c[1],3)})</td><td><div class="track" style="height:10px;background:var(--soft);border-radius:3px"><div style="height:100%;border-radius:3px;width:${(Math.abs(g)/maxG*100).toFixed(1)}%;background:${g<0?"var(--hbm)":"var(--sram)"}"></div></div></td></tr>`; }).join("") +
+    `<tr class="me"><td>Σ = ∇E₁</td><td></td><td></td><td>(${fmt(sx,3)}, ${fmt(sy,3)})</td><td></td></tr></tbody>`;
+
+  // числовая ось
+  const pos = [
+    {name:"α", logits:[3,2,1.5,0,-1,-3,-5,-6.5,-8,-10]},
+    {name:"β", logits:[14,12.5,9,7,5,3,1,-2,-4,-6]},
+  ];
+  const lnE = Math.log(2**-12);
+  const X0=-11, X1=16, W=700, pad=30, sx_ = v => pad + (v-X0)/(X1-X0)*(W-2*pad);
+  let svg = "";
+  for (let t=-10;t<=15;t+=5){ svg += `<line x1="${sx_(t)}" x2="${sx_(t)}" y1="20" y2="200" style="stroke:var(--line)"/><text x="${sx_(t)}" y="220" text-anchor="middle" style="fill:var(--muted);font:11px var(--f-mono)">${t<0?"−"+(-t):t}</text>`; }
+  let tbl = '<thead><tr><th>Позиция</th><th>LSE</th><th>Порог LSE + ln ε</th><th>Логит 3 → S</th><th>Отброшено слов</th></tr></thead><tbody>';
+  pos.forEach((p,pi)=>{
+    const y = 70 + pi*90, L = lse(p.logits), cut = L + lnE;
+    svg += `<text x="4" y="${y+4}" style="fill:var(--ink);font:600 14px var(--f-body)">${p.name}</text>`;
+    svg += `<rect x="${sx_(X0)}" y="${y-22}" width="${sx_(cut)-sx_(X0)}" height="44" rx="4" style="fill:var(--muted);opacity:.12"/>`;
+    svg += `<line x1="${sx_(cut)}" x2="${sx_(cut)}" y1="${y-26}" y2="${y+26}" style="stroke:var(--muted);stroke-dasharray:4 3;stroke-width:1.5"/><text x="${sx_(cut)}" y="${y-30}" text-anchor="middle" style="fill:var(--muted);font:11px var(--f-mono)">LSE−8,32 = ${fmt(cut,1)}</text>`;
+    svg += `<line x1="${sx_(L)}" x2="${sx_(L)}" y1="${y-26}" y2="${y+26}" style="stroke:var(--hbm);stroke-width:2"/><text x="${sx_(L)}" y="${y+40}" text-anchor="middle" style="fill:var(--hbm);font:600 11px var(--f-mono)">LSE = ${fmt(L,1)}</text>`;
+    let dropped = 0;
+    p.logits.forEach(a=>{
+      const live = a >= cut; if(!live) dropped++;
+      svg += `<circle cx="${sx_(a)}" cy="${y}" r="6" style="fill:${live?"var(--sram)":"var(--surface)"};stroke:${live?"var(--sram)":"var(--muted)"};stroke-width:1.5"/>`;
+      if (a===3) svg += `<circle cx="${sx_(a)}" cy="${y}" r="11" style="fill:none;stroke:var(--ink);stroke-width:1.5"/>`;
+    });
+    tbl += `<tr><td>${p.name}</td><td>${fmt(L,2)}</td><td>${fmt(cut,2)}</td><td>${Math.exp(3-L).toExponential(1).replace(".",",")} ${Math.exp(3-L)<2**-12?"&lt; ε, отброшено":"≥ ε, считаем"}</td><td>${dropped} из 10</td></tr>`;
+  });
+  $("nline").innerHTML = svg;
+  $("nlineTbl").innerHTML = tbl + '</tbody>';
+})();
+
+// ---------- калькулятор ----------
+(function(){
+  const presets = { gemma:{V:4,D:2304}, llama:{V:3,D:4096}, phi:{V:0,D:3072} };
+  const Vs = [32064, 50257, 131072, 128256, 256000];
+  const Vnames = ["32 064 (Phi 3.5)","50 257 (GPT-2)","131 072 (Mistral NeMo)","128 256 (Llama 3)","256 000 (Gemma 2)"];
+  let Dm = 2304;
+  const MiB = 1024*1024;
+  const human = b => b >= 1024*MiB ? (b/1024/MiB).toFixed(1).replace(".",",")+" ГБ" : (b/MiB).toFixed(b<10*MiB?1:0).replace(".",",")+" МБ";
+  function render(){
+    const N = 2 ** Number($("inN").value), V = Vs[Number($("inV").value)];
+    $("outN").textContent = N.toLocaleString("ru-RU");
+    $("outV").textContent = Vnames[Number($("inV").value)];
+    const items = [
+      ["E (N×D, bf16)", N*Dm*2, false],
+      ["C (D×|V|, bf16)", V*Dm*2, false],
+      ["Логиты (|V|×N, fp32)", N*V*4, true],
+      ["CCE: LSE + сортировка", N*4 + V*4, false],
+    ];
+    const mx = Math.max(...items.map(i=>i[1]));
+    $("calcBars").innerHTML = items.map(([k,b,w])=>`<div class="bar"><span>${k}</span><div class="track"><div class="fill ${w?"warm":""}" style="width:${(b/mx*100).toFixed(2)}%"></div></div><span class="val">${human(b)}</span></div>`).join("")
+      + `<div class="mx-cap">D = ${Dm}. Логиты больше C в ${(N*V*4/(V*Dm*2)).toFixed(1).replace(".",",")} раз и больше E в ${Math.round(N*V*4/(N*Dm*2))} раз.</div>`;
+  }
+  document.querySelectorAll("[data-preset]").forEach(b=>b.onclick=()=>{
+    document.querySelectorAll("[data-preset]").forEach(x=>x.setAttribute("aria-pressed", x===b?"true":"false"));
+    const p = presets[b.dataset.preset]; $("inV").value = p.V; Dm = p.D; render();
+  });
+  $("inN").oninput = render; $("inV").oninput = render;
+  render();
+})();
+
+// ---------- bf16 ----------
+(function(){
+  const f = new Float32Array(1), u = new Uint32Array(f.buffer);
+  function toBf16(v){ f[0]=v; const b=u[0]; const lsb=(b>>16)&1; u[0] = ((b + 0x7fff + lsb) >>> 16) << 16; return f[0]; }
+  function bits(v){ f[0]=v; const s=u[0].toString(2).padStart(32,"0"); return `<span class="sg">${s[0]}</span> <span class="ex">${s.slice(1,9)}</span> <span class="mt">${s.slice(9,16)}</span>`; }
+  const pow = k => k===0 ? "1" : `2<sup>−${k}</sup>`;
+  function render(){
+    const kb = Number($("bfB").value), ka = Number($("bfA").value);
+    const b = 2**-kb, a = 2**-ka, sum = toBf16(b + a);
+    $("bfBo").innerHTML = pow(kb); $("bfAo").innerHTML = pow(ka);
+    const lost = sum === b;
+    $("bfBits").innerHTML =
+      `<div>b = ${pow(kb).padEnd(1)} &nbsp;&nbsp;${bits(b)}</div>`+
+      `<div>a = ${pow(ka)} &nbsp;&nbsp;${bits(a)}</div>`+
+      `<div style="margin-top:8px">b + a в bf16 &nbsp;${bits(sum)} = <b>${sum}</b></div>`+
+      `<div style="margin-top:10px;font-family:var(--f-body);font-size:.9rem;color:${lost?"var(--hbm)":"var(--sram)"}">`+
+      (lost ? `a меньше b в 2<sup>${ka-kb}</sup> раз, не влезает в 7 бит мантиссы → вклад потерян, b + a = b.` : `a меньше b в 2<sup>${ka-kb}</sup> раз, вклад сохранился (возможно, округлённым).`)+
+      `</div><div style="font-family:var(--f-body);font-size:.78rem;color:var(--muted);margin-top:6px">Биты: <span class="ex">порядок (8)</span> · <span class="mt">мантисса (7)</span>. Статья: «ε = 2<sup>−12</sup> — это порог, при котором значение ещё не обнуляется при b = 2<sup>−5</sup>».</div>`;
+  }
+  $("bfA").oninput = render; $("bfB").oninput = render; render();
+})();
+
+// ---------- фильтрация ----------
+(function(){
+  const FV=48, FN=16, FVB=8, FNB=4;
+  let seed = 7, data;
+  function rng(s){ return function(){ s|=0; s=s+0x6D2B79F5|0; let t=Math.imul(s^s>>>15,1|s); t=t+Math.imul(t^t>>>7,61|t)^t; return ((t^t>>>14)>>>0)/4294967296; }; }
+  function gen(){
+    const r = rng(seed);
+    const gauss = () => { let u=0,v=0; while(!u)u=r(); while(!v)v=r(); return Math.sqrt(-2*Math.log(u))*Math.cos(2*Math.PI*v); };
+    const perm = [...Array(FV).keys()];
+    for (let i=FV-1;i>0;i--){ const j=Math.floor(r()*(i+1)); [perm[i],perm[j]]=[perm[j],perm[i]]; }
+    const A = Array.from({length:FV},(_,v)=>Array.from({length:FN},()=> 7 - 0.42*perm[v] + 1.1*gauss()));
+    for (let n=0;n<FN;n++){ for(let k=0;k<2;k++){ A[Math.floor(r()*FV)][n] += 4; } }
+    const L = [...Array(FN).keys()].map(n=>lse(A.map(row=>row[n])));
+    const S = A.map(row=>row.map((a,n)=>Math.exp(a-L[n])));
+    const x = [...Array(FN).keys()].map(n=>{ let u=r(), acc=0; for(let v=0;v<FV;v++){ acc+=S[v][n]; if(u<=acc) return v; } return 0; });
+    const G = S.map((row,v)=>row.map((s,n)=> s - (x[n]===v?1:0)));
+    const mean = A.map(row=>row.reduce((a,b)=>a+b,0)/FN);
+    const order = [...Array(FV).keys()].sort((a,b)=>mean[b]-mean[a]);
+    data = {G, order};
+  }
+  function draw(target, statEl, order, eps){
+    let skipped=0, live=0; const total=(FV/FVB)*(FN/FNB);
+    let h = `<div class="fgrid" style="grid-template-columns:repeat(${FN/FNB},auto)">`;
+    for (let bv=0; bv<FV/FVB; bv++){
+      for (let bn=0; bn<FN/FNB; bn++){
+        let any=false, cells="";
+        for (let i=0;i<FVB;i++){ for (let j=0;j<FNB;j++){
+          const g = data.G[order[bv*FVB+i]][bn*FNB+j];
+          if (Math.abs(g)>=eps){ any=true; live++; }
+          let bg="var(--soft)";
+          if (g<0) bg="var(--hbm)";
+          else if (g>=eps){ const t=Math.min(1,Math.max(0,(Math.log2(g)+Math.log2(1/eps))/Math.log2(1/eps))); bg=`color-mix(in oklab, var(--sram) ${Math.round(25+t*75)}%, var(--surface))`; }
+          cells += `<div class="fc" style="background:${bg}"></div>`;
+        }}
+        if(!any) skipped++;
+        h += `<div class="fblk${any?"":" skip"}" style="grid-template-columns:repeat(${FNB},9px)">${cells}</div>`;
+      }
+    }
+    target.innerHTML = h + "</div>";
+    statEl.textContent = `пропущено ${skipped} из ${total} блоков · |G|≥ε: ${(live/(FV*FN)*100).toFixed(1).replace(".",",")}%`;
+  }
+  function render(){
+    const k = Number($("epsIn").value), eps = 2**-k;
+    $("epsOut").innerHTML = `2<sup>−${k}</sup> ≈ ${eps.toExponential(1).replace(".",",")}`;
+    const ident = [...Array(FV).keys()];
+    draw($("gridA"), $("gsA"), ident, eps);
+    draw($("gridB"), $("gsB"), data.order, eps);
+  }
+  $("epsIn").oninput = render;
+  $("reseed").onclick = ()=>{ seed = (seed*48271)%2147483647; gen(); render(); };
+  gen(); render();
+})();
+
+// ---------- результаты ----------
+(function(){
+  const rows = [
+    ["CCE", 1164, 145, true],
+    ["Liger Kernels", 1474, 304],
+    ["Torch Tune (8 чанков)", 9631, 169],
+    ["torch.compile", 16000, 143],
+    ["Baseline", 28000, 208],
+    ["CCE без сортировки", 1162, 159, true],
+    ["CCE без фильтрации", 1163, 357, true],
+    ["CCE-Kahan-FullC", 2326, 313, true],
+  ];
+  const bar = (k,v,max,unit,me) => `<div class="bar"><span style="${me?"font-weight:600":""}">${k}</span><div class="track"><div class="fill ${me?"":"warm"}" style="width:${(v/max*100).toFixed(2)}%"></div></div><span class="val">${v.toLocaleString("ru-RU")} ${unit}</span></div>`;
+  $("resMem").innerHTML = rows.slice(0,5).map(r=>bar(r[0],r[1],28000,"МБ",r[3])).join("");
+  $("resTime").innerHTML = rows.map(r=>bar(r[0],r[2],357,"мс",r[3])).join("");
+})();
+})();
+</script>
+</body>
+</html>

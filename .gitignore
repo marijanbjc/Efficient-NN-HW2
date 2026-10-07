@@ -1,0 +1,47 @@
+# Кэш Python и байт-код
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Виртуальные окружения
+.venv/
+venv/
+ENV/
+env/
+
+# Переменные окружения и секреты (пароли, API-ключи)
+.env
+.env.local
+*.env
+
+# Системные файлы (macOS)
+.DS_Store
+
+# Файлы настроек сред разработки (IDE)
+.vscode/
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.swp
+
+# Дистрибутивы, сборка и пакеты
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST

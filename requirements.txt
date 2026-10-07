@@ -1,0 +1,24 @@
+# PyTorch под CUDA 11.8 ставится отдельно, со своим индексом:
+#   pip install torch==2.7.1 --index-url https://download.pytorch.org/whl/cu118
+# Triton приходит вместе с torch; отдельно его не ставим.
+torch==2.7.1
+
+# Официальные ядра CCE + патч для HF-моделей.
+# Экстра [transformers] сама зафиксирует совместимую версию transformers (4.48.2).
+cut-cross-entropy[transformers] @ git+https://github.com/apple/ml-cross-entropy.git
+transformers==4.48.2
+peft==0.14.0
+accelerate>=1.2,<2
+
+# Данные, анализ, графики
+datasets
+numpy
+pandas
+matplotlib
+
+# Ноутбуки
+jupyter
+ipykernel
+
+# По желанию: 8-битный AdamW для fine-tuning (FinetuneConfig.optimizer="adamw_8bit")
+# bitsandbytes
