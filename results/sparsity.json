@@ -1,0 +1,6 @@
+{
+ "frac_S_ge_eps": 0.0001400175094604492,
+ "frac_G_ge_eps": 0.00014003181457519532,
+ "nonempty_blocks_unsorted": 0.319359375,
+ "nonempty_blocks_sorted": 0.1761640625
+}
