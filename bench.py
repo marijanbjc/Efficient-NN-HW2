@@ -50,6 +50,19 @@ def free_memory() -> None:
     torch.cuda.empty_cache()
 
 
+def is_oom(err: BaseException) -> bool:
+    """True, если исключение означает нехватку памяти GPU.
+
+    На MIG-слайсе PyTorch при OOM иногда падает не с OutOfMemoryError, а с
+    RuntimeError "NVML_SUCCESS == r INTERNAL ASSERT FAILED": аллокатор пытается спросить
+    у NVML объём свободной памяти, а NVML на MIG этот запрос не поддерживает.
+    """
+    if isinstance(err, torch.cuda.OutOfMemoryError):
+        return True
+    msg = str(err)
+    return isinstance(err, RuntimeError) and ("NVML_SUCCESS" in msg or "out of memory" in msg)
+
+
 def make_leaf_inputs(inputs: LastLayerInputs, requires_grad: bool = True) -> tuple[torch.Tensor, torch.Tensor]:
     """Возвращает E и C как листовые тензоры (без истории), готовые копить .grad."""
     E = inputs.E.detach().requires_grad_(requires_grad)
@@ -135,7 +148,10 @@ def benchmark_method(
             m, t = _run_once(loss_fn, E, C, inputs.targets, inputs.softcap, mode)
             mems.append(m)
             times.append(t)
-    except torch.cuda.OutOfMemoryError:
+    except Exception as err:
+        if not is_oom(err):
+            raise
+        del err  # трейсбек держит ссылки на тензоры упавшего прогона
         free_memory()
         return BenchResult(name, mode, math.nan, math.nan, math.nan, status="OOM")
     finally:
@@ -186,7 +202,7 @@ def compare_gradients(
         ref_fn: LossFn,
         test_fn: LossFn,
         inputs: LastLayerInputs,
-) -> dict[str, float]:
+) -> dict[str, float | str]:
     """Сравнивает loss и градиенты метода test_fn с эталоном ref_fn на одних и тех же входах.
 
     Возвращает абсолютную разницу loss, относительную ошибку ‖g_test − g_ref‖ / ‖g_ref‖
@@ -198,21 +214,31 @@ def compare_gradients(
         E, C = make_leaf_inputs(inputs)
         loss = fn(E, C, inputs.targets, inputs.softcap)
         loss.backward()
-        out = (float(loss), E.grad.float().clone(), C.grad.float().clone())
+        # Градиенты уносим на CPU, чтобы эталонные ∇E, ∇C не занимали память GPU во время второго прогона.
+        out = (float(loss), E.grad.cpu(), C.grad.cpu())
         del E, C, loss
         free_memory()
         return out
 
-    loss_ref, ge_ref, gc_ref = run(ref_fn)
-    loss_tst, ge_tst, gc_tst = run(test_fn)
+    try:
+        loss_ref, ge_ref, gc_ref = run(ref_fn)
+        loss_tst, ge_tst, gc_tst = run(test_fn)
+    except Exception as err:
+        if not is_oom(err):
+            raise
+        del err
+        free_memory()
+        return {"status": "OOM"}
 
     def rel_err(a: torch.Tensor, b: torch.Tensor) -> float:
+        a, b = a.float(), b.float()
         return float((a - b).norm() / b.norm().clamp_min(1e-30))
 
     def cosine(a: torch.Tensor, b: torch.Tensor) -> float:
-        return float(torch.nn.functional.cosine_similarity(a.flatten(), b.flatten(), dim=0))
+        return float(torch.nn.functional.cosine_similarity(a.float().flatten(), b.float().flatten(), dim=0))
 
     return {
+        "status": "ok",
         "loss_ref": loss_ref,
         "loss_test": loss_tst,
         "loss_abs_diff": abs(loss_tst - loss_ref),

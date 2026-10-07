@@ -47,10 +47,11 @@ def baseline_loss_fn(E: torch.Tensor, C: torch.Tensor, targets: torch.Tensor, so
     :return: loss (1) (тензор с requieres_grad) — среднее по N токенам
     """
 
-    logits = (E @ C.T).to(torch.float32)
+    logits = (E @ C.T)
     if softcap is not None and softcap > 0:
         logits = softcap * torch.tanh(logits / softcap)
 
+    logits = logits.to(torch.float32)
     loss = F.cross_entropy(logits, targets)
 
     return loss
