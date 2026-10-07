@@ -81,7 +81,10 @@ def _run_once(
     """Один замер. Возвращает (пик памяти в МБ, время в мс) для замеряемой фазы."""
     E.grad = None
     C.grad = None
-    free_memory()
+    # Только сборка мусора, без torch.cuda.empty_cache(): иначе каждый повтор заново выпрашивает
+    # у драйвера гигабайты через cudaMalloc, и это время попадает в замер (сильнее всего у Baseline).
+    # Пиковую память это не искажает: max_memory_allocated считает выделенные тензоры, а не кэш.
+    gc.collect()
     start, end = torch.cuda.Event(enable_timing=True), torch.cuda.Event(enable_timing=True)
 
     if mode == "grad":
