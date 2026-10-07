@@ -29,8 +29,8 @@ from torch.utils.data import DataLoader
 from transformers import AutoModelForCausalLM, AutoTokenizer, PreTrainedModel, PreTrainedTokenizerBase
 from transformers import get_linear_schedule_with_warmup
 
-from bench import is_oom
-from preprocessing import IGNORE_INDEX
+from .bench import is_oom
+from .preprocessing import IGNORE_INDEX
 
 LossImpl = Literal["hf", "cce"]
 OptimizerName = Literal["adamw", "adamw_8bit", "adafactor"]

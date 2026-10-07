@@ -8,7 +8,7 @@
 |---|---|
 | Презентация с объяснением статьи | [`Cut_losses_presentation.pdf`](Cut_losses_presentation.pdf) |
 | Отчёт о воспроизведении | [`03_report.ipynb`](03_report.ipynb) |
-| Код воспроизведения | `*.py`, [`01_benchmark.ipynb`](01_benchmark.ipynb), [`02_finetune.ipynb`](02_finetune.ipynb) |
+| Код воспроизведения | [`src/`](src), [`01_benchmark.ipynb`](01_benchmark.ipynb), [`02_finetune.ipynb`](02_finetune.ipynb) |
 
 ---
 
@@ -59,11 +59,12 @@
 
 ```
 HW2/
-├── preprocessing.py        # CSV → токены → батчи; извлечение E, C, targets из модели
-├── methods.py              # реализации loss последнего слоя: Baseline, torch.compile, варианты CCE
-├── bench.py                # замер пиковой памяти и времени, сравнение градиентов
-├── finetune.py             # LoRA fine-tuning с переключателем HF / CCE, поиск максимального батча
-├── my_cce.py               # своё ядро CCE на Triton (черновик forward, в замерах не участвует)
+├── src/
+│   ├── preprocessing.py    # CSV → токены → батчи; извлечение E, C, targets из модели
+│   ├── methods.py          # реализации loss последнего слоя: Baseline, torch.compile, варианты CCE
+│   ├── bench.py            # замер пиковой памяти и времени, сравнение градиентов
+│   ├── finetune.py         # LoRA fine-tuning с переключателем HF / CCE, поиск максимального батча
+│   └── my_cce.py           # своё ядро CCE на Triton (черновик forward, в замерах не участвует)
 ├── 01_benchmark.ipynb      # таблица 1, проверка градиентов, разреженность softmax
 ├── 02_finetune.ipynb       # обучение HF против CCE
 ├── 03_report.ipynb         # отчёт: читает только results/
@@ -73,7 +74,9 @@ HW2/
 └── Cut_losses_presentation.pdf
 ```
 
-Все реализации loss в `methods.py` имеют один интерфейс `loss_fn(E, C, targets, softcap) -> loss`:
+Ноутбуки запускаются из корня репозитория и импортируют код как пакет: `from src.bench import ...`.
+
+Все реализации loss в `src/methods.py` имеют один интерфейс `loss_fn(E, C, targets, softcap) -> loss`:
 
 | Имя в таблицах | Что это |
 |---|---|
@@ -126,4 +129,4 @@ load_dataset("tatsu-lab/alpaca", split="train[:500]").to_pandas()[["instruction"
 - Один MIG-слайс вместо целой GPU и другое поколение железа: абсолютное время несравнимо со статьёй, сравниваются отношения.
 - Fine-tuning: LoRA вместо полного обучения, одна модель, один сид, 500 примеров (≈ 5 эпох - модель запоминает данные, поэтому loss ниже, чем в статье).
 - Не измерялись Liger Kernels, Torch Tune и CCE без сортировки словаря (в API пакета нет переключателя).
-- Собственная реализация CCE (`my_cce.py`) не доведена: есть черновик forward-ядра на Triton.
+- Собственная реализация CCE (`src/my_cce.py`) не доведена: есть черновик forward-ядра на Triton.

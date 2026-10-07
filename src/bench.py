@@ -21,7 +21,7 @@ from typing import Callable, Literal, Optional
 import pandas as pd
 import torch
 
-from preprocessing import LastLayerInputs
+from .preprocessing import LastLayerInputs
 
 LossFn = Callable[[torch.Tensor, torch.Tensor, torch.Tensor, Optional[float]], torch.Tensor]
 Mode = Literal["loss", "grad", "loss+grad"]
