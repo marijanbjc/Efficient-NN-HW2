@@ -84,8 +84,8 @@ HW2/
 | `torch.compile` | Тот же Baseline под `torch.compile` |
 | `CCE` | `linear_cross_entropy(impl="cce")` из пакета авторов |
 | `CCE (no grad filter)` | CCE с `filter_eps=None` |
-| `CCE (fp32 accum)` | CCE с накоплением ∇E, ∇C в fp32 - аналог CCE-Kahan из статьи |
-| `CCE-Kahan-FullC` / `-FullE` | Пресеты пакета: точное накопление + фильтр отключён для ∇C / ∇E |
+| `CCE (fp32 accum)` | CCE с накоплением ∇E, ∇C в fp32 - в статье CCE-Kahan (у нас на Triton ≥ 3.2 вместо Кэхэна fp32-буфер) |
+| `CCE-FullC (fp32)` / `CCE-FullE (fp32)` | Пресеты пакета `cce_kahan_full_c` / `_e`: точное накопление + фильтр отключён для ∇C / ∇E. В статье - CCE-Kahan-FullC / FullE |
 
 ---
 

@@ -142,10 +142,12 @@ cce_no_filter_loss_fn = partial(cce_base_loss_fn, impl="cce", filter_eps=None)
 # на Triton < 3.2 — суммирование Кэхэна (bf16 + bf16-буфер поправок). Аналог CCE-Kahan из статьи.
 cce_fp32_accum_loss_fn = partial(cce_base_loss_fn, impl="cce", accum_e_fp32=True, accum_c_fp32=True)
 
-# Пресет пакета; в статье — CCE-Kahan-FullC: точное накопление + фильтр отключён для ∇C.
+# Пресет пакета cce_kahan_full_c; в статье — CCE-Kahan-FullC. Точное накопление (у нас fp32-буфер,
+# см. выше) + фильтр отключён для ∇C.
 cce_kahan_full_c_loss_fn = partial(cce_base_loss_fn, impl="cce_kahan_full_c")
 
-# Пресет пакета; в статье — CCE-Kahan-FullE: точное накопление + фильтр отключён для ∇E.
+# Пресет пакета cce_kahan_full_e; в статье — CCE-Kahan-FullE. Точное накопление (у нас fp32-буфер)
+# + фильтр отключён для ∇E.
 cce_kahan_full_e_loss_fn = partial(cce_base_loss_fn, impl="cce_kahan_full_e")
 
 METHODS = {
@@ -154,6 +156,6 @@ METHODS = {
     "CCE": cce_loss_fn,
     "CCE (no grad filter)": cce_no_filter_loss_fn,
     "CCE (fp32 accum)": cce_fp32_accum_loss_fn,
-    "CCE-Kahan-FullC": cce_kahan_full_c_loss_fn,
-    "CCE-Kahan-FullE": cce_kahan_full_e_loss_fn,
+    "CCE-FullC (fp32)": cce_kahan_full_c_loss_fn,
+    "CCE-FullE (fp32)": cce_kahan_full_e_loss_fn,
 }
