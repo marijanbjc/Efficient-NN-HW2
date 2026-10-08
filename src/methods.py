@@ -5,11 +5,11 @@
 - варианты CCE из официального пакета (cut-cross-entropy);
 - my_cce.
 """
+
 from functools import partial
 
 import torch
 import torch.nn.functional as F
-
 from cut_cross_entropy import linear_cross_entropy
 
 """
@@ -23,14 +23,16 @@ tanh             → ядро,          пишет ещё копию      (N×V)
 * softcap        → ядро,          пишет ещё копию      (N×V)
 cross_entropy    → log_softmax + nll: ещё копия (N×V) и редукция
 
-Каждая поэлементная операция почти ничего не считает: деление или tanh дёшевы. 
-Но она целиком прогоняет матрицу N×V через HBM, туда и обратно. 
-Такие операции ограничены пропускной способностью памяти (memory-bound), а не вычислениями. 
+Каждая поэлементная операция почти ничего не считает: деление или tanh дёшевы.
+Но она целиком прогоняет матрицу N×V через HBM, туда и обратно.
+Такие операции ограничены пропускной способностью памяти (memory-bound), а не вычислениями.
 Кроме того, autograd сохраняет промежуточные тензоры для backward, и память копится.
 """
 
 
-def baseline_loss_fn(E: torch.Tensor, C: torch.Tensor, targets: torch.Tensor, softcap: float | None) -> torch.Tensor:
+def baseline_loss_fn(
+    E: torch.Tensor, C: torch.Tensor, targets: torch.Tensor, softcap: float | None
+) -> torch.Tensor:
     """
     Бейзлайн для расчёта лосса без каких-либо оптимизаций:
     - Создаются копии в операциях softcap
@@ -47,7 +49,7 @@ def baseline_loss_fn(E: torch.Tensor, C: torch.Tensor, targets: torch.Tensor, so
     :return: loss (1) (тензор с requieres_grad) — среднее по N токенам
     """
 
-    logits = (E @ C.T)
+    logits = E @ C.T
     if softcap is not None and softcap > 0:
         logits = softcap * torch.tanh(logits / softcap)
 
@@ -60,10 +62,10 @@ def baseline_loss_fn(E: torch.Tensor, C: torch.Tensor, targets: torch.Tensor, so
 """
 Скомпилированная торчом версия обычного торчового лосса.
 При первом вызове она перехватывает код, строит граф операций, оптимизирует его и генерирует новые ядра
-Перехватывает исполнение Python-байткода функции и записывает тензорные операции в граф (FX graph). 
-Ставит guards: условия, при которых граф остаётся верным (формы, dtype, устройство). 
+Перехватывает исполнение Python-байткода функции и записывает тензорные операции в граф (FX graph).
+Ставит guards: условия, при которых граф остаётся верным (формы, dtype, устройство).
 Если на следующем вызове guard не выполнился, например изменился N, функция перекомпилируется.
-Inductor Сливает цепочки поэлементных операций и редукций в одно ядро (kernel fusion) 
+Inductor Сливает цепочки поэлементных операций и редукций в одно ядро (kernel fusion)
 и генерирует его на Triton для GPU или на C++ для CPU.
 
 
@@ -75,8 +77,8 @@ to(float) → /softcap → tanh → * softcap → logsumexp выполняетс
 - Пересчёт вместо хранения
 В backward дешёвые операции пересчитываются, меньше сохранённых тензоров в HBM
 
-Inductor, как правило, не сливает matmul с последующей редукцией по словарю. 
-Логиты N×V всё равно один раз целиком записываются в HBM после E @ C.T. 
+Inductor, как правило, не сливает matmul с последующей редукцией по словарю.
+Логиты N×V всё равно один раз целиком записываются в HBM после E @ C.T.
 Дальше компилятор лишь эффективнее с ними обходится.
 """
 
@@ -104,14 +106,14 @@ for C_v in C:
 
 
 def cce_base_loss_fn(
-        E: torch.Tensor,
-        C: torch.Tensor,
-        targets: torch.Tensor,
-        softcap: float | None,
-        impl: str = "cce",
-        filter_eps: float | str | None = "auto",
-        accum_e_fp32: bool = False,
-        accum_c_fp32: bool = False,
+    E: torch.Tensor,
+    C: torch.Tensor,
+    targets: torch.Tensor,
+    softcap: float | None,
+    impl: str = "cce",
+    filter_eps: float | str | None = "auto",
+    accum_e_fp32: bool = False,
+    accum_c_fp32: bool = False,
 ) -> torch.Tensor:
     """Обёртка над linear_cross_entropy с интерфейсом бенчмарка (E, C, targets, softcap) -> loss.
 
@@ -123,10 +125,17 @@ def cce_base_loss_fn(
     """
 
     return linear_cross_entropy(
-        E, C, targets,
-        softcap=softcap, reduction="mean", shift=0, ignore_index=-100,
-        impl=impl, filter_eps=filter_eps,
-        accum_e_fp32=accum_e_fp32, accum_c_fp32=accum_c_fp32,
+        E,
+        C,
+        targets,
+        softcap=softcap,
+        reduction="mean",
+        shift=0,
+        ignore_index=-100,
+        impl=impl,
+        filter_eps=filter_eps,
+        accum_e_fp32=accum_e_fp32,
+        accum_c_fp32=accum_c_fp32,
     )
 
 
@@ -140,7 +149,9 @@ cce_no_filter_loss_fn = partial(cce_base_loss_fn, impl="cce", filter_eps=None)
 
 # CCE с точным накоплением градиентов (accum_*_fp32=True): на Triton ≥ 3.2 — fp32-буфер,
 # на Triton < 3.2 — суммирование Кэхэна (bf16 + bf16-буфер поправок). Аналог CCE-Kahan из статьи.
-cce_fp32_accum_loss_fn = partial(cce_base_loss_fn, impl="cce", accum_e_fp32=True, accum_c_fp32=True)
+cce_fp32_accum_loss_fn = partial(
+    cce_base_loss_fn, impl="cce", accum_e_fp32=True, accum_c_fp32=True
+)
 
 # Пресет пакета cce_kahan_full_c; в статье — CCE-Kahan-FullC. Точное накопление (у нас fp32-буфер,
 # см. выше) + фильтр отключён для ∇C.

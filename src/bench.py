@@ -15,18 +15,21 @@ from __future__ import annotations
 
 import gc
 import math
+from collections.abc import Callable
 from dataclasses import asdict, dataclass
-from typing import Callable, Literal, Optional
+from typing import Literal
 
 import pandas as pd
 import torch
 
 from .preprocessing import LastLayerInputs
 
-LossFn = Callable[[torch.Tensor, torch.Tensor, torch.Tensor, Optional[float]], torch.Tensor]
+LossFn = Callable[
+    [torch.Tensor, torch.Tensor, torch.Tensor, float | None], torch.Tensor
+]
 Mode = Literal["loss", "grad", "loss+grad"]
 
-MB: float = 1024.0 ** 2
+MB: float = 1024.0**2
 
 
 @dataclass
@@ -60,10 +63,14 @@ def is_oom(err: BaseException) -> bool:
     if isinstance(err, torch.cuda.OutOfMemoryError):
         return True
     msg = str(err)
-    return isinstance(err, RuntimeError) and ("NVML_SUCCESS" in msg or "out of memory" in msg)
+    return isinstance(err, RuntimeError) and (
+        "NVML_SUCCESS" in msg or "out of memory" in msg
+    )
 
 
-def make_leaf_inputs(inputs: LastLayerInputs, requires_grad: bool = True) -> tuple[torch.Tensor, torch.Tensor]:
+def make_leaf_inputs(
+    inputs: LastLayerInputs, requires_grad: bool = True
+) -> tuple[torch.Tensor, torch.Tensor]:
     """Возвращает E и C как листовые тензоры (без истории), готовые копить .grad."""
     E = inputs.E.detach().requires_grad_(requires_grad)
     C = inputs.C.detach().requires_grad_(requires_grad)
@@ -71,12 +78,12 @@ def make_leaf_inputs(inputs: LastLayerInputs, requires_grad: bool = True) -> tup
 
 
 def _run_once(
-        loss_fn: LossFn,
-        E: torch.Tensor,
-        C: torch.Tensor,
-        targets: torch.Tensor,
-        softcap: float | None,
-        mode: Mode,
+    loss_fn: LossFn,
+    E: torch.Tensor,
+    C: torch.Tensor,
+    targets: torch.Tensor,
+    softcap: float | None,
+    mode: Mode,
 ) -> tuple[float, float]:
     """Один замер. Возвращает (пик памяти в МБ, время в мс) для замеряемой фазы."""
     E.grad = None
@@ -85,7 +92,10 @@ def _run_once(
     # у драйвера гигабайты через cudaMalloc, и это время попадает в замер (сильнее всего у Baseline).
     # Пиковую память это не искажает: max_memory_allocated считает выделенные тензоры, а не кэш.
     gc.collect()
-    start, end = torch.cuda.Event(enable_timing=True), torch.cuda.Event(enable_timing=True)
+    start, end = (
+        torch.cuda.Event(enable_timing=True),
+        torch.cuda.Event(enable_timing=True),
+    )
 
     if mode == "grad":
         # Forward вне замера: в памяти остаётся то, что метод сохранил для backward.
@@ -115,7 +125,6 @@ def _run_once(
 
     torch.cuda.synchronize()
 
-
     peak_mb = (torch.cuda.max_memory_allocated() - base) / MB
     elapsed_ms = start.elapsed_time(end)
 
@@ -129,12 +138,12 @@ def _run_once(
 
 
 def benchmark_method(
-        name: str,
-        loss_fn: LossFn,
-        inputs: LastLayerInputs,
-        mode: Mode,
-        n_warmup: int = 2,
-        n_repeats: int = 5,
+    name: str,
+    loss_fn: LossFn,
+    inputs: LastLayerInputs,
+    mode: Mode,
+    n_warmup: int = 2,
+    n_repeats: int = 5,
 ) -> BenchResult:
     """Замер одного метода: прогрев (компиляция torch.compile, автотюнинг Triton), затем повторы.
 
@@ -167,12 +176,12 @@ def benchmark_method(
 
 
 def benchmark_all(
-        methods: dict[str, LossFn],
-        inputs: LastLayerInputs,
-        modes: tuple[Mode, ...] = ("loss", "grad", "loss+grad"),
-        n_warmup: int = 2,
-        n_repeats: int = 5,
-        verbose: bool = True,
+    methods: dict[str, LossFn],
+    inputs: LastLayerInputs,
+    modes: tuple[Mode, ...] = ("loss", "grad", "loss+grad"),
+    n_warmup: int = 2,
+    n_repeats: int = 5,
+    verbose: bool = True,
 ) -> pd.DataFrame:
     """Прогоняет все методы во всех режимах и возвращает длинную таблицу (строка = метод × режим)."""
     rows: list[dict] = []
@@ -181,7 +190,9 @@ def benchmark_all(
             res = benchmark_method(name, fn, inputs, mode, n_warmup, n_repeats)
             rows.append(asdict(res))
             if verbose:
-                print(f"{name:<28} {mode:<10} {res.peak_mem_mb:>10.1f} MB {res.time_ms:>9.1f} ms  {res.status}")
+                print(
+                    f"{name:<28} {mode:<10} {res.peak_mem_mb:>10.1f} MB {res.time_ms:>9.1f} ms  {res.status}"
+                )
     return pd.DataFrame(rows)
 
 
@@ -189,22 +200,29 @@ def to_paper_table(df: pd.DataFrame) -> pd.DataFrame:
     """Переводит длинную таблицу в широкую, как таблица 1: колонки (режим, Memory/Time)."""
     wide = df.pivot(index="method", columns="mode", values=["peak_mem_mb", "time_ms"])
     wide = wide.swaplevel(axis=1).sort_index(axis=1)
-    order = [m for m in ("loss", "grad", "loss+grad") if m in wide.columns.get_level_values(0)]
+    order = [
+        m
+        for m in ("loss", "grad", "loss+grad")
+        if m in wide.columns.get_level_values(0)
+    ]
     return wide.reindex(columns=order, level=0).reindex(df["method"].unique())
 
 
 def lower_bound_mb(inputs: LastLayerInputs) -> float:
     """Нижняя граница памяти для режимов с backward: размер ∇E + ∇C (в типе самих E и C)."""
-    return (inputs.E.numel() * inputs.E.element_size() + inputs.C.numel() * inputs.C.element_size()) / MB
+    return (
+        inputs.E.numel() * inputs.E.element_size()
+        + inputs.C.numel() * inputs.C.element_size()
+    ) / MB
 
 
 # --------------------------------------------------------------------------- точность
 
 
 def compare_gradients(
-        ref_fn: LossFn,
-        test_fn: LossFn,
-        inputs: LastLayerInputs,
+    ref_fn: LossFn,
+    test_fn: LossFn,
+    inputs: LastLayerInputs,
 ) -> dict[str, float | str]:
     """Сравнивает loss и градиенты метода test_fn с эталоном ref_fn на одних и тех же входах.
 
@@ -238,7 +256,11 @@ def compare_gradients(
         return float((a - b).norm() / b.norm().clamp_min(1e-30))
 
     def cosine(a: torch.Tensor, b: torch.Tensor) -> float:
-        return float(torch.nn.functional.cosine_similarity(a.float().flatten(), b.float().flatten(), dim=0))
+        return float(
+            torch.nn.functional.cosine_similarity(
+                a.float().flatten(), b.float().flatten(), dim=0
+            )
+        )
 
     return {
         "status": "ok",

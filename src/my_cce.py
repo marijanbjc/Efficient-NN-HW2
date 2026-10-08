@@ -1,19 +1,19 @@
 """Собственная реализация Cut Cross-Entropy на PyTorch (torch.autograd.Function)."""
-import torch
+
 import triton
 import triton.language as tl
 
 
 @triton.jit
 def forward(
-        E_ptr,  # Указатель на матрицу E (скрытые состояния токенов) -  N x D [8192x2304]
-        C_ptr,  # Указатель на матрицу C (классификационная голова) - V x D [250_000x2304]
-        output_ptr,  # Указатель на участок памяти для записи результата
-        stride,  # Сколько элементов в 1-й строке матрицы E и в 1-м столбце матрицы C
-        BLOCK_SIZE_D: tl.constexpr,  # Размер блока по скрытому состоянию
-        BLOCK_SIZE_E: tl.constexpr,  # Размер блока по токенам последовательности
-        BLOCK_SIZE_C: tl.constexpr,  # Размер блока по по словам словаря
-        Lock,  # Просто указатель на вектор блокировок (0/1) по одному числу на каждый блок [N/BLOCK_SIZE_E]
+    E_ptr,  # Указатель на матрицу E (скрытые состояния токенов) -  N x D [8192x2304]
+    C_ptr,  # Указатель на матрицу C (классификационная голова) - V x D [250_000x2304]
+    output_ptr,  # Указатель на участок памяти для записи результата
+    stride,  # Сколько элементов в 1-й строке матрицы E и в 1-м столбце матрицы C
+    BLOCK_SIZE_D: tl.constexpr,  # Размер блока по скрытому состоянию
+    BLOCK_SIZE_E: tl.constexpr,  # Размер блока по токенам последовательности
+    BLOCK_SIZE_C: tl.constexpr,  # Размер блока по по словам словаря
+    Lock,  # Просто указатель на вектор блокировок (0/1) по одному числу на каждый блок [N/BLOCK_SIZE_E]
 ):
 
     # Идентификаторы текущей программы в 2D сетке
@@ -37,8 +37,14 @@ def forward(
         # Берём BLOCK_SIZE_D измерений начиная с block_d для BLOCK_SIZE_C слов словаря и BLOCK_SIZE_E токенов последовательности
         # Сдвиг stride нужен для того, чтобы перескочить по измерению D в каждой из двух матриц
         # И взять одни и те же координаты для пачки токенов и пачки слов
-        offset_c = tl.arange(0, BLOCK_SIZE_C) * stride + (block_d + tl.arange(0, BLOCK_SIZE_D))[:, None]  # [BD, BV]
-        offset_e = tl.arange(0, BLOCK_SIZE_E) * stride + (block_d + tl.arange(0, BLOCK_SIZE_D))[:, None]  # [BD, BN]
+        offset_c = (
+            tl.arange(0, BLOCK_SIZE_C) * stride
+            + (block_d + tl.arange(0, BLOCK_SIZE_D))[:, None]
+        )  # [BD, BV]
+        offset_e = (
+            tl.arange(0, BLOCK_SIZE_E) * stride
+            + (block_d + tl.arange(0, BLOCK_SIZE_D))[:, None]
+        )  # [BD, BN]
 
         c_block = tl.load(C_ptr + start_C + offset_c)
         e_block = tl.load(E_ptr + start_E + offset_e)

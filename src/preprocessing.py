@@ -20,7 +20,12 @@ from pathlib import Path
 import pandas as pd
 import torch
 from torch.utils.data import DataLoader, Dataset
-from transformers import AutoModelForCausalLM, AutoTokenizer, PreTrainedModel, PreTrainedTokenizerBase
+from transformers import (
+    AutoModelForCausalLM,
+    AutoTokenizer,
+    PreTrainedModel,
+    PreTrainedTokenizerBase,
+)
 
 IGNORE_INDEX: int = -100
 
@@ -57,12 +62,12 @@ class TokenizedExample:
 
 
 def load_examples(
-        csv_path: str | Path,
-        instruction_col: str = "instruction",
-        input_col: str = "input",
-        output_col: str = "output",
-        text_col: str = "text",
-        max_examples: int | None = None,
+    csv_path: str | Path,
+    instruction_col: str = "instruction",
+    input_col: str = "input",
+    output_col: str = "output",
+    text_col: str = "text",
+    max_examples: int | None = None,
 ) -> list[Example]:
     """Читает CSV и собирает список примеров.
 
@@ -84,8 +89,12 @@ def load_examples(
             if extra is None or pd.isna(extra) or str(extra).strip() == "":
                 prompt = PROMPT_NO_INPUT.format(instruction=instruction)
             else:
-                prompt = PROMPT_WITH_INPUT.format(instruction=instruction, input=str(extra))
-            examples.append(Example(prompt=prompt, response=str(getattr(row, output_col))))
+                prompt = PROMPT_WITH_INPUT.format(
+                    instruction=instruction, input=str(extra)
+                )
+            examples.append(
+                Example(prompt=prompt, response=str(getattr(row, output_col)))
+            )
     elif text_col in df.columns:
         examples = [Example(prompt="", response=str(t)) for t in df[text_col]]
     else:
@@ -97,34 +106,48 @@ def load_examples(
 
 
 def tokenize_example(
-        tokenizer: PreTrainedTokenizerBase,
-        example: Example,
-        max_length: int,
-        mask_prompt: bool = True,
+    tokenizer: PreTrainedTokenizerBase,
+    example: Example,
+    max_length: int,
+    mask_prompt: bool = True,
 ) -> TokenizedExample:
     """Токенизирует пример: [BOS] + промпт + ответ + [EOS], обрезая до max_length.
 
     Если mask_prompt=True, токены промпта получают метку -100 и не участвуют в loss.
     BOS тоже всегда маскируется: его никто не предсказывает.
     """
-    prompt_ids: list[int] = tokenizer(example.prompt, add_special_tokens=False)["input_ids"] if example.prompt else []
-    response_ids: list[int] = tokenizer(example.response, add_special_tokens=False)["input_ids"]
+    prompt_ids: list[int] = (
+        tokenizer(example.prompt, add_special_tokens=False)["input_ids"]
+        if example.prompt
+        else []
+    )
+    response_ids: list[int] = tokenizer(example.response, add_special_tokens=False)[
+        "input_ids"
+    ]
 
-    bos: list[int] = [tokenizer.bos_token_id] if tokenizer.bos_token_id is not None else []
-    eos: list[int] = [tokenizer.eos_token_id] if tokenizer.eos_token_id is not None else []
+    bos: list[int] = (
+        [tokenizer.bos_token_id] if tokenizer.bos_token_id is not None else []
+    )
+    eos: list[int] = (
+        [tokenizer.eos_token_id] if tokenizer.eos_token_id is not None else []
+    )
 
     input_ids = bos + prompt_ids + response_ids + eos
-    prompt_labels = [IGNORE_INDEX] * len(prompt_ids) if mask_prompt else list(prompt_ids)
+    prompt_labels = (
+        [IGNORE_INDEX] * len(prompt_ids) if mask_prompt else list(prompt_ids)
+    )
     labels = [IGNORE_INDEX] * len(bos) + prompt_labels + response_ids + eos
 
-    return TokenizedExample(input_ids=input_ids[:max_length], labels=labels[:max_length])
+    return TokenizedExample(
+        input_ids=input_ids[:max_length], labels=labels[:max_length]
+    )
 
 
 def tokenize_examples(
-        tokenizer: PreTrainedTokenizerBase,
-        examples: list[Example],
-        max_length: int,
-        mask_prompt: bool = True,
+    tokenizer: PreTrainedTokenizerBase,
+    examples: list[Example],
+    max_length: int,
+    mask_prompt: bool = True,
 ) -> list[TokenizedExample]:
     """Токенизирует все примеры и выбрасывает те, где после обрезки не осталось ни одной метки."""
     out: list[TokenizedExample] = []
@@ -157,7 +180,9 @@ class TokenizedDataset(Dataset):
         return self.items[idx]
 
 
-def collate_with_padding(batch: list[TokenizedExample], pad_token_id: int) -> dict[str, torch.Tensor]:
+def collate_with_padding(
+    batch: list[TokenizedExample], pad_token_id: int
+) -> dict[str, torch.Tensor]:
     """Склеивает примеры в батч, дополняя справа до самой длинной последовательности.
 
     Паддинг: input_ids → pad_token_id, labels → -100, attention_mask → 0.
@@ -175,11 +200,11 @@ def collate_with_padding(batch: list[TokenizedExample], pad_token_id: int) -> di
 
 
 def make_train_dataloader(
-        tokenized: list[TokenizedExample],
-        batch_size: int,
-        pad_token_id: int,
-        shuffle: bool = True,
-        seed: int = 0,
+    tokenized: list[TokenizedExample],
+    batch_size: int,
+    pad_token_id: int,
+    shuffle: bool = True,
+    seed: int = 0,
 ) -> DataLoader:
     """DataLoader для обучения. Сид фиксирует порядок, чтобы у baseline и CCE были одни и те же батчи."""
     generator = torch.Generator().manual_seed(seed)
@@ -216,10 +241,20 @@ class LastLayerInputs:
         return self.E.shape[0]
 
     def to(self, device: torch.device | str) -> LastLayerInputs:
-        return LastLayerInputs(self.E.to(device), self.C.to(device), self.targets.to(device), self.softcap)
+        return LastLayerInputs(
+            self.E.to(device), self.C.to(device), self.targets.to(device), self.softcap
+        )
 
     def save(self, path: str | Path) -> None:
-        torch.save({"E": self.E.cpu(), "C": self.C.cpu(), "targets": self.targets.cpu(), "softcap": self.softcap}, path)
+        torch.save(
+            {
+                "E": self.E.cpu(),
+                "C": self.C.cpu(),
+                "targets": self.targets.cpu(),
+                "softcap": self.softcap,
+            },
+            path,
+        )
 
     @staticmethod
     def load(path: str | Path, device: torch.device | str = "cpu") -> LastLayerInputs:
@@ -228,25 +263,27 @@ class LastLayerInputs:
 
 
 def load_model_and_tokenizer(
-        model_name: str,
-        device: torch.device | str = "cuda",
-        dtype: torch.dtype = torch.bfloat16,
+    model_name: str,
+    device: torch.device | str = "cuda",
+    dtype: torch.dtype = torch.bfloat16,
 ) -> tuple[PreTrainedModel, PreTrainedTokenizerBase]:
     """Загружает модель в режиме инференса (eval, без градиентов) и её токенизатор."""
     tokenizer = AutoTokenizer.from_pretrained(model_name)
     # Для Gemma 2 HF рекомендует eager-внимание (из-за softcap в attention).
-    model = AutoModelForCausalLM.from_pretrained(model_name, torch_dtype=dtype, attn_implementation="eager")
+    model = AutoModelForCausalLM.from_pretrained(
+        model_name, torch_dtype=dtype, attn_implementation="eager"
+    )
     model.to(device).eval()
     return model, tokenizer
 
 
 @torch.no_grad()
 def extract_last_layer_inputs(
-        model: PreTrainedModel,
-        tokenized: list[TokenizedExample],
-        n_tokens: int,
-        device: torch.device | str = "cuda",
-        shuffle_seed: int | None = 0,
+    model: PreTrainedModel,
+    tokenized: list[TokenizedExample],
+    n_tokens: int,
+    device: torch.device | str = "cuda",
+    shuffle_seed: int | None = 0,
 ) -> LastLayerInputs:
     """Прогоняет примеры через бэкбон и собирает ровно n_tokens строк (E, target).
 
@@ -282,7 +319,9 @@ def extract_last_layer_inputs(
             break
 
     if collected < n_tokens:
-        raise ValueError(f"Данных хватило только на {collected} токенов с loss, а нужно {n_tokens}.")
+        raise ValueError(
+            f"Данных хватило только на {collected} токенов с loss, а нужно {n_tokens}."
+        )
 
     E = torch.cat(chunks_e)[:n_tokens].contiguous()
     targets = torch.cat(chunks_t)[:n_tokens].contiguous()

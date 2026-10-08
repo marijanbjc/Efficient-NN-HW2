@@ -17,17 +17,23 @@ import gc
 import math
 import random
 import time
+from collections.abc import Callable, Iterator
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import Callable, Iterator, Literal
+from typing import Literal
 
 import numpy as np
 import pandas as pd
 import torch
 from peft import LoraConfig, get_peft_model
 from torch.utils.data import DataLoader
-from transformers import AutoModelForCausalLM, AutoTokenizer, PreTrainedModel, PreTrainedTokenizerBase
-from transformers import get_linear_schedule_with_warmup
+from transformers import (
+    AutoModelForCausalLM,
+    AutoTokenizer,
+    PreTrainedModel,
+    PreTrainedTokenizerBase,
+    get_linear_schedule_with_warmup,
+)
 
 from .bench import is_oom
 from .preprocessing import IGNORE_INDEX
@@ -41,23 +47,31 @@ class FinetuneConfig:
     """Все настройки одного прогона. Сохраняется рядом с логом, чтобы прогоны можно было сравнить."""
 
     model_name: str = "google/gemma-2-2b"
-    loss_impl: LossImpl = "hf"                # "hf" — стандартный loss HF, "cce" — патч CCE
-    cce_impl: str = "cce"                     # вариант CCE: "cce", "cce_kahan_full_c", ...
+    loss_impl: LossImpl = "hf"  # "hf" — стандартный loss HF, "cce" — патч CCE
+    cce_impl: str = "cce"  # вариант CCE: "cce", "cce_kahan_full_c", ...
     # LoRA
     lora_r: int = 16
     lora_alpha: int = 32
     lora_dropout: float = 0.05
     lora_target_modules: list[str] = field(
-        default_factory=lambda: ["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"]
+        default_factory=lambda: [
+            "q_proj",
+            "k_proj",
+            "v_proj",
+            "o_proj",
+            "gate_proj",
+            "up_proj",
+            "down_proj",
+        ]
     )
     # Обучение
     optimizer: OptimizerName = "adamw"
     lr: float = 2e-4
     weight_decay: float = 0.0
     warmup_steps: int = 20
-    num_steps: int = 300                      # число шагов оптимизатора
-    batch_size: int = 8                       # примеров на один forward
-    grad_accum: int = 1                       # шагов накопления на один шаг оптимизатора
+    num_steps: int = 300  # число шагов оптимизатора
+    batch_size: int = 8  # примеров на один forward
+    grad_accum: int = 1  # шагов накопления на один шаг оптимизатора
     max_grad_norm: float = 1.0
     gradient_checkpointing: bool = False
     seed: int = 0
@@ -112,7 +126,9 @@ def load_model_for_finetune(
     return model, tokenizer
 
 
-def build_optimizer(model: torch.nn.Module, cfg: FinetuneConfig) -> torch.optim.Optimizer:
+def build_optimizer(
+    model: torch.nn.Module, cfg: FinetuneConfig
+) -> torch.optim.Optimizer:
     """Создаёт оптимизатор только по обучаемым параметрам (адаптерам LoRA)."""
     params = [p for p in model.parameters() if p.requires_grad]
     if cfg.optimizer == "adamw":
@@ -124,7 +140,13 @@ def build_optimizer(model: torch.nn.Module, cfg: FinetuneConfig) -> torch.optim.
     if cfg.optimizer == "adafactor":
         from transformers.optimization import Adafactor
 
-        return Adafactor(params, lr=cfg.lr, weight_decay=cfg.weight_decay, scale_parameter=False, relative_step=False)
+        return Adafactor(
+            params,
+            lr=cfg.lr,
+            weight_decay=cfg.weight_decay,
+            scale_parameter=False,
+            relative_step=False,
+        )
     raise ValueError(f"Неизвестный оптимизатор: {cfg.optimizer}")
 
 
@@ -179,7 +201,9 @@ def train(
     set_seed(cfg.seed)
     model.train()
     optimizer = build_optimizer(model, cfg)
-    scheduler = get_linear_schedule_with_warmup(optimizer, cfg.warmup_steps, cfg.num_steps)
+    scheduler = get_linear_schedule_with_warmup(
+        optimizer, cfg.warmup_steps, cfg.num_steps
+    )
     trainable = [p for p in model.parameters() if p.requires_grad]
 
     log_path = Path(cfg.log_path)
@@ -206,7 +230,10 @@ def train(
             loss_sum += float(loss)
             # Токены с loss после сдвига: метка позиции 0 не используется.
             n_loss_tokens += int((batch["labels"][:, 1:] != IGNORE_INDEX).sum())
-            del out, loss  # сразу отпускаем logits baseline, иначе они доживут до следующего forward
+            del (
+                out,
+                loss,
+            )  # сразу отпускаем logits baseline, иначе они доживут до следующего forward
 
         torch.nn.utils.clip_grad_norm_(trainable, cfg.max_grad_norm)
         optimizer.step()
@@ -232,7 +259,9 @@ def train(
                 raise RuntimeError(f"loss стал {row['loss']} на шаге {step}")
 
     # Рядом с логом сохраняем конфиг прогона.
-    pd.Series(asdict(cfg)).to_json(log_path.with_suffix(".config.json"), force_ascii=False, indent=1)
+    pd.Series(asdict(cfg)).to_json(
+        log_path.with_suffix(".config.json"), force_ascii=False, indent=1
+    )
     return pd.DataFrame(rows)
 
 
@@ -261,7 +290,7 @@ def fits_in_memory(
         del err  # трейсбек держит ссылки на активации упавшего прогона
         ok = False
     finally:
-        out = batch = None  # noqa: F841 — отпускаем ссылки до empty_cache
+        out = batch = None
         model.zero_grad(set_to_none=True)
         gc.collect()
         torch.cuda.empty_cache()
@@ -308,6 +337,10 @@ def make_random_batch_factory(
 
     def make_batch(batch_size: int) -> dict[str, torch.Tensor]:
         ids = torch.randint(0, vocab_size, (batch_size, seq_len))
-        return {"input_ids": ids, "labels": ids.clone(), "attention_mask": torch.ones_like(ids)}
+        return {
+            "input_ids": ids,
+            "labels": ids.clone(),
+            "attention_mask": torch.ones_like(ids),
+        }
 
     return make_batch
