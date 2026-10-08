@@ -9,6 +9,7 @@ gemma-2-2b-it.tar.gz
 gemma-2-2b-it/
 
 # Виртуальные окружения
+NN_HW2_venv/
 .venv/
 venv/
 ENV/
@@ -30,6 +31,7 @@ env/
 *.njsproj
 *.sln
 *.swp
+.zed/
 
 # Дистрибутивы, сборка и пакеты
 build/
